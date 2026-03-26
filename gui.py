@@ -6,87 +6,14 @@ import matplotlib.pyplot as plt
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-# def on_load_click(plot_frame, x_combo, y_combo, value_combo):
-#     import os
-#     from csv_reader import load_csv
-#     import matplotlib.pyplot as plt
-#     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-#     data_folder = "data"
-#     files = [f for f in os.listdir(data_folder) if f.endswith(".csv")]
-
-#     if not files:
-#         print("Keine CSV-Dateien gefunden")
-#         return
-
-#     path = os.path.join(data_folder, files[0])
-#     df = load_csv(path)
-#     df = df.iloc[::200]
-
-#     # Auswahl aus GUI holen
-#     columns = list(df.columns)
-
-#     x_combo["values"] = columns
-#     y_combo["values"] = columns
-#     value_combo["values"] = columns
-
-#     # if "Field Commanded X [mm]" in columns:
-#     #     x_combo.set("Field Commanded X [mm]")
-
-#     # if "Field Commanded Y [mm]" in columns:
-#     #     y_combo.set("Field Commanded Y [mm]")
-
-#     # if "ADC B:0" in columns:
-#     #     value_combo.set("ADC B:0")
-
-#     x_col = x_combo.get()
-#     y_col = y_combo.get()
-#     val_col = value_combo.get()
-
-#     x = df[x_col]
-#     y = df[y_col]
-#     values = df[val_col]
-
-#     # alten Plot loschen
-#     for widget in plot_frame.winfo_children():
-#         widget.destroy()
-
-#     # Scatter-Plot (wichtig!)
-#     fig, ax = plt.subplots()
-#     sc = ax.scatter(x, y, c=values)
-
-#     for widget in plot_frame.winfo_children():
-#         widget.destroy()
-
-#     toolbar_frame = tk.Frame(plot_frame)
-#     toolbar_frame.pack(fill="x")
-
-#     canvas_frame = tk.Frame(plot_frame)
-#     canvas_frame.pack(fill="both", expand=True)
-
-#     canvas = FigureCanvasTkAgg(fig, master=plot_frame)
-#     canvas.draw()
-#     canvas.get_tk_widget().pack(fill="both", expand=True)
-
-#     toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
-#     toolbar.update()
-
-#     plt.colorbar(sc, ax=ax)
-
-#     ax.set_xlabel(x_col)
-#     ax.set_ylabel(y_col)
-#     ax.set_title(val_col)
-
-#     canvas = FigureCanvasTkAgg(fig, master=plot_frame)
-#     canvas.draw()
-#     canvas.get_tk_widget().pack(fill="both", expand=True)
-
-def on_load_click(plot_frame, x_combo, y_combo, value_combo):
+def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry):
     import os
     import tkinter as tk
     from csv_reader import load_csv
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+    import mplcursors
 
     data_folder = "data"
     files = [f for f in os.listdir(data_folder) if f.endswith(".csv")]
@@ -97,8 +24,11 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo):
 
     path = os.path.join(data_folder, files[0])
     df = load_csv(path)
-    df = df.iloc[::200]
+    step = int(step_entry.get())
+    if step < 1:
+        step = 1
 
+    df = df.iloc[::step]
     columns = list(df.columns)
     x_combo["values"] = columns
     y_combo["values"] = columns
@@ -125,7 +55,18 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo):
 
     # Plot erstellen
     fig, ax = plt.subplots()
-    sc = ax.scatter(x, y, c=values, s=5)
+    sc = ax.scatter(x, y, c=values, s=3)
+
+    cursor = mplcursors.cursor(sc, hover=True)
+
+    @cursor.connect("add")
+    def on_add(sel):
+        i = sel.index
+        sel.annotation.set_text(
+            f"X: {x.iloc[i]:.3f}\n"
+            f"Y: {y.iloc[i]:.3f}\n"
+            f"Value: {values.iloc[i]:.2f}"
+        )
 
     plt.colorbar(sc, ax=ax)
     ax.set_xlabel(x_col)
@@ -155,6 +96,11 @@ def start_gui():
     control_frame = tk.Frame(root)
     control_frame.pack(pady=10)
 
+    tk.Label(control_frame, text="Jeder n-te Punkt:").grid(row=0, column=6, padx=5)
+    step_entry = tk.Entry(control_frame, width=8)
+    step_entry.grid(row=0, column=7, padx=5)
+    step_entry.insert(0, "200")
+
     tk.Label(control_frame, text="X:").grid(row=0, column=0, padx=5)
     x_combo = ttk.Combobox(control_frame, values=[
         "Field Commanded X [mm]", "Time [s]"
@@ -178,8 +124,7 @@ def start_gui():
 
     button = tk.Button(root, text="CSV laden")
     button.pack(pady=10)
-    button.config(command=lambda: on_load_click(plot_frame, x_combo, y_combo, value_combo))
-
+    button.config(command=lambda: on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry))
 
     plot_frame = tk.Frame(root)
     plot_frame.pack(fill="both", expand=True)

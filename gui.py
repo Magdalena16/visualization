@@ -7,7 +7,7 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry):
+def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry, hover_frame, hover_vars):
     import os
     import tkinter as tk
     from csv_reader import load_csv
@@ -42,6 +42,17 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry):
     y = df[y_col]
     values = df[val_col]
 
+    for widget in hover_frame.winfo_children():
+        widget.destroy()
+
+    hover_vars.clear()
+
+    for col in columns:
+        var = tk.BooleanVar()
+        cb = tk.Checkbutton(hover_frame, text=col, variable=var)
+        cb.pack(side="left")
+        hover_vars[col] = var
+
     # alten Plot löschen
     for widget in plot_frame.winfo_children():
         widget.destroy()
@@ -56,17 +67,8 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry):
     # Plot erstellen
     fig, ax = plt.subplots()
     sc = ax.scatter(x, y, c=values, s=3)
-
-    cursor = mplcursors.cursor(sc, hover=True)
-
-    @cursor.connect("add")
-    def on_add(sel):
-        i = sel.index
-        sel.annotation.set_text(
-            f"X: {x.iloc[i]:.3f}\n"
-            f"Y: {y.iloc[i]:.3f}\n"
-            f"Value: {values.iloc[i]:.2f}"
-        )
+    
+    ax.set_aspect('equal', adjustable='box')
 
     plt.colorbar(sc, ax=ax)
     ax.set_xlabel(x_col)
@@ -81,6 +83,25 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry):
     # Toolbar
     toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
     toolbar.update()
+
+    cursor = mplcursors.cursor(sc, hover=True)
+
+    @cursor.connect("add")
+    def on_add(sel):
+        i = sel.index
+
+        text = [
+            f"X: {x.iloc[i]:.3f}",
+            f"Y: {y.iloc[i]:.3f}",
+            f"{val_col}: {values.iloc[i]}"
+        ]
+
+        for col, var in hover_vars.items():
+            if var.get() and col not in [x_col, y_col, val_col]:
+                text.append(f"{col}: {df[col].iloc[i]}")
+
+        sel.annotation.set_text("\n".join(text))
+
         
 def on_close(root):
     root.quit()
@@ -122,9 +143,14 @@ def start_gui():
     value_combo.grid(row=0, column=5, padx=5)
     value_combo.set("ADC B:0")
 
+    hover_frame = tk.LabelFrame(root, text="Hover-Werte")
+    hover_frame.pack(fill="x", padx=10, pady=5)
+
+    hover_vars = {}
+
     button = tk.Button(root, text="CSV laden")
     button.pack(pady=10)
-    button.config(command=lambda: on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry))
+    button.config(command=lambda: on_load_click(plot_frame, x_combo, y_combo, value_combo, step_entry, hover_frame, hover_vars))
 
     plot_frame = tk.Frame(root)
     plot_frame.pack(fill="both", expand=True)

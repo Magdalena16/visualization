@@ -2,15 +2,91 @@
 import tkinter as tk
 import os
 from csv_reader import load_csv
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from tkinter import ttk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+
+# def on_load_click(plot_frame, x_combo, y_combo, value_combo):
+#     import os
+#     from csv_reader import load_csv
+#     import matplotlib.pyplot as plt
+#     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+#     data_folder = "data"
+#     files = [f for f in os.listdir(data_folder) if f.endswith(".csv")]
+
+#     if not files:
+#         print("Keine CSV-Dateien gefunden")
+#         return
+
+#     path = os.path.join(data_folder, files[0])
+#     df = load_csv(path)
+#     df = df.iloc[::200]
+
+#     # Auswahl aus GUI holen
+#     columns = list(df.columns)
+
+#     x_combo["values"] = columns
+#     y_combo["values"] = columns
+#     value_combo["values"] = columns
+
+#     # if "Field Commanded X [mm]" in columns:
+#     #     x_combo.set("Field Commanded X [mm]")
+
+#     # if "Field Commanded Y [mm]" in columns:
+#     #     y_combo.set("Field Commanded Y [mm]")
+
+#     # if "ADC B:0" in columns:
+#     #     value_combo.set("ADC B:0")
+
+#     x_col = x_combo.get()
+#     y_col = y_combo.get()
+#     val_col = value_combo.get()
+
+#     x = df[x_col]
+#     y = df[y_col]
+#     values = df[val_col]
+
+#     # alten Plot loschen
+#     for widget in plot_frame.winfo_children():
+#         widget.destroy()
+
+#     # Scatter-Plot (wichtig!)
+#     fig, ax = plt.subplots()
+#     sc = ax.scatter(x, y, c=values)
+
+#     for widget in plot_frame.winfo_children():
+#         widget.destroy()
+
+#     toolbar_frame = tk.Frame(plot_frame)
+#     toolbar_frame.pack(fill="x")
+
+#     canvas_frame = tk.Frame(plot_frame)
+#     canvas_frame.pack(fill="both", expand=True)
+
+#     canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+#     canvas.draw()
+#     canvas.get_tk_widget().pack(fill="both", expand=True)
+
+#     toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+#     toolbar.update()
+
+#     plt.colorbar(sc, ax=ax)
+
+#     ax.set_xlabel(x_col)
+#     ax.set_ylabel(y_col)
+#     ax.set_title(val_col)
+
+#     canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+#     canvas.draw()
+#     canvas.get_tk_widget().pack(fill="both", expand=True)
 
 def on_load_click(plot_frame, x_combo, y_combo, value_combo):
     import os
+    import tkinter as tk
     from csv_reader import load_csv
     import matplotlib.pyplot as plt
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
     data_folder = "data"
     files = [f for f in os.listdir(data_folder) if f.endswith(".csv")]
@@ -23,21 +99,10 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo):
     df = load_csv(path)
     df = df.iloc[::200]
 
-    # Auswahl aus GUI holen
     columns = list(df.columns)
-
     x_combo["values"] = columns
     y_combo["values"] = columns
     value_combo["values"] = columns
-
-    # if "Field Commanded X [mm]" in columns:
-    #     x_combo.set("Field Commanded X [mm]")
-
-    # if "Field Commanded Y [mm]" in columns:
-    #     y_combo.set("Field Commanded Y [mm]")
-
-    # if "ADC B:0" in columns:
-    #     value_combo.set("ADC B:0")
 
     x_col = x_combo.get()
     y_col = y_combo.get()
@@ -47,24 +112,34 @@ def on_load_click(plot_frame, x_combo, y_combo, value_combo):
     y = df[y_col]
     values = df[val_col]
 
-    # alten Plot loschen
+    # alten Plot löschen
     for widget in plot_frame.winfo_children():
         widget.destroy()
 
-    # Scatter-Plot (wichtig!)
+    # Unterframes für Toolbar und Plot
+    toolbar_frame = tk.Frame(plot_frame)
+    toolbar_frame.pack(fill="x")
+
+    canvas_frame = tk.Frame(plot_frame)
+    canvas_frame.pack(fill="both", expand=True)
+
+    # Plot erstellen
     fig, ax = plt.subplots()
-    sc = ax.scatter(x, y, c=values)
+    sc = ax.scatter(x, y, c=values, s=5)
 
     plt.colorbar(sc, ax=ax)
-
     ax.set_xlabel(x_col)
     ax.set_ylabel(y_col)
     ax.set_title(val_col)
 
-    canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+    # Canvas in GUI einbetten
+    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
 
+    # Toolbar
+    toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+    toolbar.update()
         
 def on_close(root):
     root.quit()

@@ -1,0 +1,16 @@
+# Virtual Environment
+.venv/
+
+# Visual Studio
+.vs/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# CSV / Output (optional, falls generiert)
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db

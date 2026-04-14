@@ -61,6 +61,8 @@ def start_gui():
     plot_frame = tk.Frame(root, bd=1, relief="sunken")
     plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
+
+
     # ---------- Widgets: Plot-Einstellungen ----------
     tk.Label(settings_frame, text="Datei:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
     file_combo = ttk.Combobox(settings_frame, width=25, state="readonly")
@@ -93,7 +95,7 @@ def start_gui():
     tk.Label(options_frame, text="Jeder n-te Punkt:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
     step_entry = tk.Entry(options_frame, width=8)
     step_entry.grid(row=0, column=1, padx=5, pady=5)
-    step_entry.insert(0, "200")
+    step_entry.insert(0, "500")
 
     tk.Label(options_frame, text="Punktgröße:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
     point_size_entry = tk.Entry(options_frame, width=8)
@@ -237,6 +239,12 @@ def start_gui():
                 plot_frame, x_col, y_col, val_col, step, point_size
             )
 
+    def update_detail_view():
+        if hasattr(controller, "last_ax") and controller.last_ax is not None:
+            xlim = controller.last_ax.get_xlim()
+            ylim = controller.last_ax.get_ylim()
+            controller.replot_current_view(xlim, ylim)
+
     def reset_view():
         controller.redraw_plot()
 
@@ -296,6 +304,9 @@ def start_gui():
 
     reset_button = tk.Button(options_frame, text="Ansicht zurücksetzen", command=reset_view)
     reset_button.grid(row=0, column=7, padx=5, pady=5)
+
+    detail_button = tk.Button(options_frame, text="Detailansicht aktualisieren", command=update_detail_view)
+    detail_button.grid(row=0, column=8, padx=5, pady=5)
 
     # ---------- Start ----------
     known_files = set(fill_file_list())

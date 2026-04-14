@@ -16,7 +16,10 @@ class AppController:
         self.current_file = None
         self.last_plot_args = None
         self.current_plot_config = {}
+        self.current_view_limits = None
         self.is_updating_plot = False
+        self.last_ax = None
+        self._is_replotting_view = False
 
     def get_file_list(self):
         return get_csv_files(self.data_folder)
@@ -105,61 +108,111 @@ class AppController:
         toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
         toolbar.update()
 
-    def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None, point_size=5, filters=None):
-        df_base = self.df.copy()
+    def plot_current_data(
+        self,
+        plot_frame,
+        x_col,
+        y_col,
+        val_col,
+        step,
+        hover_cols=None,
+        point_size=5,
+        filters=None,
+        xlim=None,
+        ylim=None,
+        preserve_limits=False
+    ):
 
-        if filters:
-            for col, val in filters.items():
-                if col in df_base.columns and val and val != "Alle":
-                    df_base = df_base[df_base[col].astype(str) == str(val)]
-        
-        if self.is_updating_plot:
-            return
-        
         self.current_plot_config = {
             "plot_frame": plot_frame,
             "x_col": x_col,
             "y_col": y_col,
             "val_col": val_col,
             "step": step,
-            "hover_cols": hover_cols,
-            "point_size": point_size
+            "hover_cols": hover_cols or [],
+            "point_size": point_size,
+            "filters": filters
         }
 
-        x, y, values = self.get_downsampled_data(x_col, y_col, val_col, step)
-        if x is None:
+        if self.df is None:
+            print("Keine Daten geladen")
+            return
+
+        hover_cols = hover_cols or []
+        filters = filters or {}
+
+
+
+        df_base = self.df.copy()
+
+        # Filter anwenden
+        for col, val in filters.items():
+            if col in df_base.columns and val and val != "Alle":
+                df_base = df_base[df_base[col].astype(str) == str(val)]
+
+        all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
+
+        missing = [col for col in all_cols if col not in df_base.columns]
+        if missing:
+            print(f"Fehlende Spalten: {missing}")
+            return
+
+        df_plot = df_base[all_cols].copy()
+
+        for col in all_cols:
+            df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
+
+        df_plot = df_plot.dropna()
+
+        if df_plot.empty:
             print("Keine Daten zum Plotten")
             return
 
-        hover_data = None
-        if hover_cols:
-            all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
-            df_plot = df_base[all_cols].copy()            
+        # Falls gezoomt: nur sichtbaren Bereich betrachten
+        if xlim is not None and ylim is not None:
+            df_plot = df_plot[
+                (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
+                (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
+            ]
+
+            if df_plot.empty:
+                print("Keine sichtbaren Daten")
+                return
+
+            # dynamisches Resampling im sichtbaren Bereich
+            target_points = 5000
+            dynamic_step = max(1, len(df_plot) // target_points)
+            df_plot = df_plot.iloc[::dynamic_step]
+        else:
             df_plot = df_plot.iloc[::step]
 
-            for col in df_plot.columns:
-                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
+        x = df_plot[x_col]
+        y = df_plot[y_col]
+        values = df_plot[val_col]
+        hover_data = df_plot[hover_cols] if hover_cols else None
 
-            df_plot = df_plot.dropna()
+        if preserve_limits and xlim is not None and ylim is not None:
+            self.current_view_limits = (xlim, ylim)
 
-            x = df_plot[x_col]
-            y = df_plot[y_col]
-            values = df_plot[val_col]
-            hover_data = df_plot[hover_cols]
-
-        self.last_plot_args = (plot_frame, x_col, y_col, val_col, step, hover_cols, point_size)
-        draw_scatter_plot(
-            plot_frame,
-            x,
-            y,
-            values,
-            x_col,
-            y_col,
-            val_col,
-            hover_data,
-            point_size,
-            controller=self
-        )
+        self.is_updating_plot = True
+        try:
+           fig, ax, canvas = draw_scatter_plot(
+                plot_frame,
+                x,
+                y,
+                values,
+                x_col,
+                y_col,
+                val_col,
+                hover_data=hover_data,
+                point_size=point_size,
+                controller=self,
+                xlim=xlim if preserve_limits else None,
+                ylim=ylim if preserve_limits else None
+            )
+           self.last_ax = ax
+        finally:
+            self.is_updating_plot = False
 
     def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
 
@@ -218,9 +271,14 @@ class AppController:
         toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
         toolbar.update()
 
-    def redraw_plot(self):
+    def plot_visible_data(self, xlim, ylim):
+        if self.is_updating_plot:
+            return
+
         if not self.current_plot_config:
             return
+
+        self.current_view_limits = (xlim, ylim)
 
         cfg = self.current_plot_config
 
@@ -231,73 +289,127 @@ class AppController:
             cfg["val_col"],
             cfg["step"],
             cfg["hover_cols"],
-            cfg["point_size"]
+            cfg["point_size"],
+            cfg["filters"],
+            xlim=xlim,
+            ylim=ylim,
+            preserve_limits=True
+        )
+
+    def replot_current_view(self, xlim, ylim):
+        if getattr(self, "_is_replotting_view", False):
+            return
+
+        if self.df is None or not self.current_plot_config:
+            return
+
+        cfg = self.current_plot_config
+        x_col = cfg["x_col"]
+        y_col = cfg["y_col"]
+        val_col = cfg["val_col"]
+        hover_cols = cfg["hover_cols"]
+        point_size = cfg["point_size"]
+        plot_frame = cfg["plot_frame"]
+        filters = cfg["filters"]
+
+        df_base = self.df.copy()
+
+        # Filter anwenden
+        for col, val in filters.items():
+            if col in df_base.columns and val and val != "Alle":
+                df_base = df_base[df_base[col].astype(str) == str(val)]
+
+        all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
+        df_plot = df_base[all_cols].copy()
+
+        for col in all_cols:
+            df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
+
+        df_plot = df_plot.dropna()
+
+        # nur sichtbaren Bereich nehmen
+        df_plot = df_plot[
+            (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
+            (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
+        ]
+
+        if df_plot.empty:
+            print("Keine sichtbaren Daten")
+            return
+
+        # dynamischer Step
+        visible_count = len(df_plot)
+
+        if visible_count > 200000:
+            dynamic_step = 500
+        elif visible_count > 50000:
+            dynamic_step = 100
+        elif visible_count > 10000:
+            dynamic_step = 20
+        elif visible_count > 2000:
+            dynamic_step = 5
+        else:
+            dynamic_step = 1
+
+        df_plot = df_plot.iloc[::dynamic_step]
+
+        x = df_plot[x_col]
+        y = df_plot[y_col]
+        values = df_plot[val_col]
+        hover_data = df_plot[hover_cols] if hover_cols else None
+
+        self.current_view_limits = (xlim, ylim)
+
+        self._is_replotting_view = True
+        try:
+            fig, ax, canvas = draw_scatter_plot(
+                plot_frame,
+                x,
+                y,
+                values,
+                x_col,
+                y_col,
+                val_col,
+                hover_data=hover_data,
+                point_size=point_size,
+                controller=self,
+                xlim=xlim,
+                ylim=ylim
+            )
+            self.last_ax = ax
+        finally:
+            self._is_replotting_view = False
+
+
+
+    def redraw_plot(self):
+        if not self.current_plot_config:
+            return
+
+        cfg = self.current_plot_config
+
+        xlim = None
+        ylim = None
+        if self.current_view_limits is not None:
+            xlim, ylim = self.current_view_limits
+
+        self.plot_current_data(
+            cfg["plot_frame"],
+            cfg["x_col"],
+            cfg["y_col"],
+            cfg["val_col"],
+            cfg["step"],
+            cfg["hover_cols"],
+            cfg["point_size"],
+            cfg["filters"],
+            xlim=xlim,
+            ylim=ylim,
+            preserve_limits=True
         )
 
     def reset_plot_view(self):
         if hasattr(self, "last_plot_args") and self.last_plot_args:
             self.redraw_plot()
-
-    # def plot_visible_data(self, xlim, ylim):
-    #     if self.is_updating_plot:
-    #         return
-
-    #     if self.df is None or not self.current_plot_config:
-    #         return
-
-    #     cfg = self.current_plot_config
-    #     x_col = cfg["x_col"]
-    #     y_col = cfg["y_col"]
-    #     val_col = cfg["val_col"]
-    #     hover_cols = cfg["hover_cols"]
-    #     point_size = cfg["point_size"]
-    #     plot_frame = cfg["plot_frame"]
-
-    #     cols = list(dict.fromkeys([x_col, y_col, val_col] + (hover_cols or [])))
-    #     df_plot = self.df[cols].copy()
-
-    #     for col in cols:
-    #         df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-
-    #     df_plot = df_plot.dropna()
-
-    #     # nur sichtbaren Bereich nehmen
-    #     df_visible = df_plot[
-    #         (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
-    #         (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
-    #     ]
-
-    #     if df_visible.empty:
-    #         print("Keine sichtbaren Daten")
-    #         return
-
-    #     # automatische Downsampling-Logik
-    #     target_points = 5000
-    #     step = max(1, len(df_visible) // target_points)
-
-    #     df_visible = df_visible.iloc[::step]
-
-    #     x = df_visible[x_col]
-    #     y = df_visible[y_col]
-    #     values = df_visible[val_col]
-    #     hover_data = df_visible[hover_cols] if hover_cols else None
-
-    #     self.is_updating_plot = True
-    #     try:
-    #         draw_scatter_plot(
-    #             plot_frame,
-    #             x,
-    #             y,
-    #             values,
-    #             x_col,
-    #             y_col,
-    #             val_col,
-    #             hover_data,
-    #             point_size,
-    #             controller=self
-    #         )
-    #     finally:
-    #         self.is_updating_plot = False
 
     def plot_visible_data(self, xlim, ylim):
         if self.df is None or not self.current_plot_config:

@@ -297,10 +297,11 @@ class AppController:
         )
 
     def replot_current_view(self, xlim, ylim):
-        if getattr(self, "_is_replotting_view", False):
-            return
-
         if self.df is None or not self.current_plot_config:
+            return
+        if self._is_replotting_view:
+            return
+        if getattr(self, "_is_replotting_view", False):
             return
 
         cfg = self.current_plot_config
@@ -358,7 +359,7 @@ class AppController:
         values = df_plot[val_col]
         hover_data = df_plot[hover_cols] if hover_cols else None
 
-        self.current_view_limits = (xlim, ylim)
+        #self.current_view_limits = (xlim, ylim)
 
         self._is_replotting_view = True
         try:
@@ -377,6 +378,7 @@ class AppController:
                 ylim=ylim
             )
             self.last_ax = ax
+            self.current_view_limits = (xlim, ylim)
         finally:
             self._is_replotting_view = False
 

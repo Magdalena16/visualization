@@ -1,4 +1,4 @@
-import os
+﻿import os
 import pandas as pd
 from csv_reader import get_csv_files, load_csv
 from plotter import draw_scatter_plot
@@ -9,6 +9,7 @@ class AppController:
         self.data_folder = data_folder
         self.df = None
         self.current_file = None
+        self.last_plot_args = None
 
     def get_file_list(self):
         return get_csv_files(self.data_folder)
@@ -40,9 +41,8 @@ class AppController:
 
         return x, y, values
 
-    def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None):
+    def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None, point_size=5):
         x, y, values = self.get_downsampled_data(x_col, y_col, val_col, step)
-
         if x is None:
             print("Keine Daten zum Plotten")
             return
@@ -63,4 +63,9 @@ class AppController:
             values = df_plot[val_col]
             hover_data = df_plot[hover_cols]
 
-        draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data)
+        self.last_plot_args = (plot_frame, x_col, y_col, val_col, step, hover_cols, point_size)
+        draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data, point_size)
+
+    def reset_plot_view(self):
+        if hasattr(self, "last_plot_args") and self.last_plot_args:
+            self.plot_current_data(*self.last_plot_args)

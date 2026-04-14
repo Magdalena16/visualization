@@ -8,7 +8,7 @@ def clear_plot_frame(plot_frame):
     for widget in plot_frame.winfo_children():
         widget.destroy()
 
-def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data=None):
+def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data=None, point_size=5):
     clear_plot_frame(plot_frame)
 
     toolbar_frame = tk.Frame(plot_frame)
@@ -18,7 +18,7 @@ def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_dat
     canvas_frame.pack(fill="both", expand=True)
 
     fig, ax = plt.subplots()
-    sc = ax.scatter(x, y, c=values, s=5)
+    sc = ax.scatter(x, y, c=values, s=point_size)
 
     fig.colorbar(sc, ax=ax)
     ax.set_xlabel(x_col)

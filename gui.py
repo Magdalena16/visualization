@@ -1,4 +1,4 @@
-
+﻿
 import tkinter as tk
 from tkinter import ttk
 from controller import AppController
@@ -34,6 +34,22 @@ def start_gui():
     step_entry = tk.Entry(control_frame, width=8)
     step_entry.grid(row=0, column=9, padx=5)
     step_entry.insert(0, "200")
+
+    tk.Label(control_frame, text="Punktgröße:").grid(row=0, column=10, padx=5)
+    point_size_entry = tk.Entry(control_frame, width=6)
+    point_size_entry.grid(row=0, column=11, padx=5)
+    point_size_entry.insert(0, "5")
+
+    auto_reload_var = tk.BooleanVar(value=False)
+    auto_reload_cb = tk.Checkbutton(control_frame, text="Auto-Reload", variable=auto_reload_var)
+    auto_reload_cb.grid(row=0, column=12, padx=5)
+    
+    def reset_view():
+        controller.reset_plot_view()
+
+
+
+
 
     plot_frame = tk.Frame(root)
     plot_frame.pack(fill="both", expand=True)
@@ -111,16 +127,29 @@ def start_gui():
             step_entry.delete(0, tk.END)
             step_entry.insert(0, "200")
 
-        hover_cols = [col for col, var in hover_vars.items() if var.get()]
-        #hover_cols = [col for col in hover_cols if col not in [x_col, y_col, val_col]]
+        try:
+            point_size = float(point_size_entry.get())
+        except ValueError:
+            point_size = 5
+            point_size_entry.delete(0, tk.END)
+            point_size_entry.insert(0, "5")
 
-        controller.plot_current_data(plot_frame, x_col, y_col, val_col, step, hover_cols)
+        hover_cols = [col for col, var in hover_vars.items() if var.get()]
+
+        controller.plot_current_data(plot_frame, x_col, y_col, val_col, step, hover_cols, point_size)
+
+
+    
 
     load_file_button = tk.Button(control_frame, text="Datei laden", command=load_selected_file)
-    load_file_button.grid(row=0, column=10, padx=5)
+    load_file_button.grid(row=0, column=13, padx=5)
 
     plot_button = tk.Button(control_frame, text="Plotten", command=plot_selected_data)
-    plot_button.grid(row=0, column=11, padx=5)
+    plot_button.grid(row=0, column=14, padx=5)
+
+    reset_button = tk.Button(control_frame, text="Ansicht zurücksetzen", command=reset_view)
+    reset_button.grid(row=0, column=15, padx=5)
+
 
     fill_file_list()
     load_selected_file()

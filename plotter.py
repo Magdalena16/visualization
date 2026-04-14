@@ -1,4 +1,4 @@
-import tkinter as tk
+﻿import tkinter as tk
 import matplotlib.pyplot as plt
 import mplcursors
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -8,7 +8,11 @@ def clear_plot_frame(plot_frame):
     for widget in plot_frame.winfo_children():
         widget.destroy()
 
-def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data=None, point_size=5):
+def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_data=None, point_size=5, controller=None):
+    plt.close("all")
+
+    clear_plot_frame(plot_frame)
+    ...
     clear_plot_frame(plot_frame)
 
     toolbar_frame = tk.Frame(plot_frame)
@@ -17,6 +21,7 @@ def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_dat
     canvas_frame = tk.Frame(plot_frame)
     canvas_frame.pack(fill="both", expand=True)
 
+    plt.close("all")
     fig, ax = plt.subplots()
     sc = ax.scatter(x, y, c=values, s=point_size)
 
@@ -50,6 +55,17 @@ def draw_scatter_plot(plot_frame, x, y, values, x_col, y_col, val_col, hover_dat
 
     toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
     toolbar.update()
+
+    if controller is not None:
+        def on_mouse_release(event):
+            if event.inaxes != ax:
+                return
+
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            controller.plot_visible_data(xlim, ylim)
+
+        canvas.mpl_connect("button_release_event", on_mouse_release)
 
     return fig, ax, canvas
 

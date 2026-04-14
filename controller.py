@@ -43,7 +43,14 @@ class AppController:
 
         return x, y, values
 
-    def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None, point_size=5):
+    def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None, point_size=5, filters=None):
+        df_base = self.df.copy()
+
+        if filters:
+            for col, val in filters.items():
+                if col in df_base.columns and val and val != "Alle":
+                    df_base = df_base[df_base[col].astype(str) == str(val)]
+        
         if self.is_updating_plot:
             return
         
@@ -65,7 +72,7 @@ class AppController:
         hover_data = None
         if hover_cols:
             all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
-            df_plot = self.df[all_cols].copy()            
+            df_plot = df_base[all_cols].copy()            
             df_plot = df_plot.iloc[::step]
 
             for col in df_plot.columns:

@@ -1,4 +1,5 @@
 ﻿
+import os
 import tkinter as tk
 from tkinter import ttk
 from controller import AppController
@@ -44,26 +45,36 @@ def start_gui():
     auto_reload_cb = tk.Checkbutton(control_frame, text="Auto-Reload", variable=auto_reload_var)
     auto_reload_cb.grid(row=0, column=12, padx=5)
     
-    def reset_view():
-        controller.reset_plot_view()
-
-
-
-
-
     plot_frame = tk.Frame(root)
     plot_frame.pack(fill="both", expand=True)
 
     hover_frame = tk.LabelFrame(root, text="Hover-Werte")
     hover_frame.pack(fill="x", padx=10, pady=5)
 
+    tk.Label(control_frame, text="Tag:").grid(row=1, column=0, padx=5, pady=5)
+    tag_combo = ttk.Combobox(control_frame, width=18)
+    tag_combo.grid(row=1, column=1, padx=5, pady=5)
+
+    tk.Label(control_frame, text="Outline:").grid(row=1, column=2, padx=5, pady=5)
+    outline_combo = ttk.Combobox(control_frame, width=18)
+    outline_combo.grid(row=1, column=3, padx=5, pady=5)
+
+    tk.Label(control_frame, text="Bauteil:").grid(row=1, column=4, padx=5, pady=5)
+    part_combo = ttk.Combobox(control_frame, width=18)
+    part_combo.grid(row=1, column=5, padx=5, pady=5)
+
     hover_vars = {}
+    known_files = set()
+
+    def reset_view():
+        controller.reset_plot_view()
 
     def fill_file_list():
         files = controller.get_file_list()
         file_combo["values"] = files
         if files and not file_combo.get():
             file_combo.set(files[0])
+        return files
 
     def load_selected_file():
         filename = file_combo.get()
@@ -116,6 +127,12 @@ def start_gui():
         y_col = y_combo.get()
         val_col = value_combo.get()
 
+        filters = {
+            "tag": tag_combo.get(),
+            "outline": outline_combo.get(),
+            "bauteil": part_combo.get(),
+        }
+
         if not x_col or not y_col or not val_col:
             print("Spaltenauswahl fehlt")
             return
@@ -136,8 +153,48 @@ def start_gui():
 
         hover_cols = [col for col, var in hover_vars.items() if var.get()]
 
-        controller.plot_current_data(plot_frame, x_col, y_col, val_col, step, hover_cols, point_size)
+        controller.plot_current_data(
+            plot_frame, x_col, y_col, val_col, step, hover_cols, point_size, filters
+        )
 
+    def check_for_new_files():
+        nonlocal known_files
+
+        if auto_reload_var.get():
+            files = fill_file_list()
+            current_files = set(files)
+
+            new_files = current_files - known_files
+            if new_files:
+                newest_file = sorted(new_files)[-1]
+
+                if file_is_ready(newest_file):
+                    file_combo.set(newest_file)
+                    try:
+                        load_selected_file()
+                        plot_selected_data()
+                        known_files = current_files
+                        print(f"Neue Datei geladen: {newest_file}")
+                    except PermissionError:
+                        print(f"Datei noch gesperrt: {newest_file}")
+                else:
+                    print(f"Datei noch nicht fertig: {newest_file}")
+            else:
+                known_files = current_files
+
+        root.after(2000, check_for_new_files)
+
+    def file_is_ready(filename):
+        path = os.path.join("data", filename)
+
+        try:
+            size1 = os.path.getsize(path)
+            with open(path, "rb") as f:
+                f.read(1)
+            size2 = os.path.getsize(path)
+            return size1 == size2
+        except (PermissionError, OSError, FileNotFoundError):
+            return False
 
     
 
@@ -154,10 +211,25 @@ def start_gui():
     fill_file_list()
     load_selected_file()
 
+    def set_filter_values(combo, column_name):
+        if column_name in controller.df.columns:
+            vals = sorted(controller.df[column_name].dropna().astype(str).unique().tolist())
+            combo["values"] = ["Alle"] + vals
+            combo.set("Alle")
+        else:
+            combo["values"] = ["Alle"]
+            combo.set("Alle")
+
+    set_filter_values(tag_combo, "tag")
+    set_filter_values(outline_combo, "outline")
+    set_filter_values(part_combo, "bauteil")
+
     def on_close():
         root.quit()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+    known_files = set(fill_file_list())
+    check_for_new_files()
     root.mainloop()
 

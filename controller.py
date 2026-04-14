@@ -20,6 +20,7 @@ class AppController:
         self.is_updating_plot = False
         self.last_ax = None
         self._is_replotting_view = False
+        self.color_limits = None
 
     def get_file_list(self):
         return get_csv_files(self.data_folder)
@@ -28,6 +29,7 @@ class AppController:
         path = os.path.join(self.data_folder, filename)
         self.df = load_csv(path)
         self.current_file = filename
+        self.color_limits = None
         return self.df
     
     def load_all_files(self):
@@ -141,8 +143,6 @@ class AppController:
         hover_cols = hover_cols or []
         filters = filters or {}
 
-
-
         df_base = self.df.copy()
 
         # Filter anwenden
@@ -194,6 +194,11 @@ class AppController:
         if preserve_limits and xlim is not None and ylim is not None:
             self.current_view_limits = (xlim, ylim)
 
+        if self.color_limits is None:
+            vmin = pd.to_numeric(self.df[val_col], errors="coerce").min()
+            vmax = pd.to_numeric(self.df[val_col], errors="coerce").max()
+            self.color_limits = (vmin, vmax)
+
         self.is_updating_plot = True
         try:
            fig, ax, canvas = draw_scatter_plot(
@@ -208,7 +213,9 @@ class AppController:
                 point_size=point_size,
                 controller=self,
                 xlim=xlim if preserve_limits else None,
-                ylim=ylim if preserve_limits else None
+                ylim=ylim if preserve_limits else None,
+                vmin=vmin,
+                vmax=vmax
             )
            self.last_ax = ax
         finally:
@@ -296,7 +303,7 @@ class AppController:
             preserve_limits=True
         )
 
-    def replot_current_view(self, xlim, ylim):
+    def replot_current_view(self, xlim, ylim):  
         if self.df is None or not self.current_plot_config:
             return
         if self._is_replotting_view:
@@ -360,6 +367,7 @@ class AppController:
         hover_data = df_plot[hover_cols] if hover_cols else None
 
         #self.current_view_limits = (xlim, ylim)
+        vmin, vmax = self.color_limits
 
         self._is_replotting_view = True
         try:
@@ -375,7 +383,9 @@ class AppController:
                 point_size=point_size,
                 controller=self,
                 xlim=xlim,
-                ylim=ylim
+                ylim=ylim,
+                vmin=vmin,
+                vmax=vmax
             )
             self.last_ax = ax
             self.current_view_limits = (xlim, ylim)
@@ -469,3 +479,27 @@ class AppController:
             )
         finally:
             self.is_updating_plot = False
+
+    def reset_view(self):
+        if not self.current_plot_config or self.df is None:
+            return
+
+        cfg = self.current_plot_config
+
+        # Zoom zurücksetzen
+        self.current_view_limits = None
+
+        # Original-Plot neu zeichnen (mit ursprünglichem Step)
+        self.plot_current_data(
+            cfg["plot_frame"],
+            cfg["x_col"],
+            cfg["y_col"],
+            cfg["val_col"],
+            cfg["step"],
+            cfg["hover_cols"],
+            cfg["point_size"],
+            cfg["filters"],
+            xlim=None,
+            ylim=None,
+            preserve_limits=False
+        )

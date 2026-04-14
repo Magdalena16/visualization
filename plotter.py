@@ -3,6 +3,15 @@ import matplotlib.pyplot as plt
 import mplcursors
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+class CustomToolbar(NavigationToolbar2Tk):
+    def __init__(self, canvas, window, controller=None):
+        self.controller = controller
+        super().__init__(canvas, window)
+
+    def home(self, *args):
+        super().home(*args)
+        if self.controller is not None:
+            self.controller.reset_view()
 
 def clear_plot_frame(plot_frame):
     for widget in plot_frame.winfo_children():
@@ -20,7 +29,9 @@ def draw_scatter_plot(
     point_size=5,
     controller=None,
     xlim=None,
-    ylim=None
+    ylim=None,
+    vmin=None,
+    vmax=None
 ):
 
     clear_plot_frame(plot_frame)
@@ -33,7 +44,7 @@ def draw_scatter_plot(
     canvas_frame.pack(fill="both", expand=True)
 
     fig, ax = plt.subplots()
-    sc = ax.scatter(x, y, c=values, s=point_size)
+    sc = ax.scatter(x, y, c=values, s=point_size, vmin=vmin, vmax=vmax)
 
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
@@ -153,7 +164,7 @@ def draw_scatter_plot(
 
     canvas.draw()
 
-    toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+    toolbar = CustomToolbar(canvas, toolbar_frame, controller=controller)
     toolbar.update()
 
     return fig, ax, canvas

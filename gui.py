@@ -246,7 +246,7 @@ def start_gui():
             controller.replot_current_view(xlim, ylim)
 
     def reset_view():
-        controller.redraw_plot()
+        controller.reset_view()
 
     def file_is_ready(filename):
         path = os.path.join("data", filename)

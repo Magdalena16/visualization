@@ -2,12 +2,17 @@
 import pandas as pd
 from csv_reader import get_csv_files, load_csv
 from plotter import draw_scatter_plot
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from plotter import clear_plot_frame
+import tkinter as tk
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class AppController:
     def __init__(self, data_folder="data"):
         self.data_folder = data_folder
-        self.df = None
+        self.layer_dfs = {}        
         self.current_file = None
         self.last_plot_args = None
         self.current_plot_config = {}
@@ -21,6 +26,16 @@ class AppController:
         self.df = load_csv(path)
         self.current_file = filename
         return self.df
+    
+    def load_all_files(self):
+        self.layer_dfs = {}
+
+        for filename in self.get_file_list():
+            path = os.path.join(self.data_folder, filename)
+            try:
+                self.layer_dfs[filename] = load_csv(path)
+            except Exception as e:
+                print(f"Fehler beim Laden von {filename}: {e}")
 
     def get_columns(self):
         if self.df is None:
@@ -42,6 +57,53 @@ class AppController:
         values = df_plot[val_col]
 
         return x, y, values
+
+    def plot_all_layers(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+
+        clear_plot_frame(plot_frame)
+
+        toolbar_frame = tk.Frame(plot_frame)
+        toolbar_frame.pack(fill="x")
+
+        canvas_frame = tk.Frame(plot_frame)
+        canvas_frame.pack(fill="both", expand=True)
+
+        fig, ax = plt.subplots()
+
+        for filename, df in self.layer_dfs.items():
+            needed = [x_col, y_col, val_col]
+            if not all(col in df.columns for col in needed):
+                continue
+
+            df_plot = df[needed].copy()
+            for col in needed:
+                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
+            df_plot = df_plot.dropna()
+            df_plot = df_plot.iloc[::step]
+
+            if df_plot.empty:
+                continue
+
+            sc = ax.scatter(
+                df_plot[x_col],
+                df_plot[y_col],
+                c=df_plot[val_col],
+                s=point_size,
+                label=filename
+            )
+
+        ax.set_xlabel(x_col)
+        ax.set_ylabel(y_col)
+        ax.set_title(val_col)
+        ax.set_aspect("equal", adjustable="box")
+        ax.legend()
+
+        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+        toolbar.update()
 
     def plot_current_data(self, plot_frame, x_col, y_col, val_col, step, hover_cols=None, point_size=5, filters=None):
         df_base = self.df.copy()
@@ -98,6 +160,63 @@ class AppController:
             point_size,
             controller=self
         )
+
+    def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+
+        clear_plot_frame(plot_frame)
+        plt.close("all")
+
+        toolbar_frame = tk.Frame(plot_frame)
+        toolbar_frame.pack(fill="x")
+
+        canvas_frame = tk.Frame(plot_frame)
+        canvas_frame.pack(fill="both", expand=True)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+
+        plotted_any = False
+
+        for layer_idx, (filename, df) in enumerate(sorted(self.layer_dfs.items())):
+            needed = [x_col, y_col, val_col]
+            if not all(col in df.columns for col in needed):
+                continue
+
+            df_plot = df[needed].copy()
+
+            for col in needed:
+                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
+
+            df_plot = df_plot.dropna()
+            df_plot = df_plot.iloc[::step]
+
+            if df_plot.empty:
+                continue
+
+            x = df_plot[x_col]
+            y = df_plot[y_col]
+            z = [layer_idx] * len(df_plot)
+            c = df_plot[val_col]
+
+            ax.scatter(x, y, z, c=c, s=point_size)
+            plotted_any = True
+
+        if not plotted_any:
+            print("Keine passenden Layer-Daten für 3D")
+            plt.close(fig)
+            return
+
+        ax.set_xlabel(x_col)
+        ax.set_ylabel(y_col)
+        ax.set_zlabel("Layer")
+        ax.set_title(f"3D Layer-Ansicht: {val_col}")
+
+        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+        toolbar.update()
 
     def redraw_plot(self):
         if not self.current_plot_config:

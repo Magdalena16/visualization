@@ -2,45 +2,55 @@
 import pandas as pd
 from csv_reader import get_csv_files, load_csv
 from plotter import draw_scatter_plot
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from plotter import clear_plot_frame, CustomToolbar
-import tkinter as tk
-from mpl_toolkits.mplot3d import Axes3D
-
 
 
 class AppController:
+
+    # --- Initialisierung ---
     def __init__(self, data_folder="data"):
         self.data_folder = data_folder
-        self.layer_dfs = {}        
+
+        self.df = None
+        self.layer_dfs = {}
+
         self.current_file = None
-        self.last_plot_args = None
         self.current_plot_config = {}
         self.current_view_limits = None
-        self.is_updating_plot = False
-        self.last_ax = None
-        self._is_replotting_view = False
-        self.color_limits = None
+
         self.filtered_df = None
         self.last_filters = None
-        self.layer_dfs = {}
+
+        self.color_limits = None
+        self.last_ax = None
+
+        self._is_replotting_view = False
         self.plot_canvas = None
         self.plot_toolbar = None
         self.plot_canvas_widget = None
         self.plot_toolbar_frame = None
         self.plot_canvas_frame = None
 
+    # --- Dateiverwaltung ---
     def get_file_list(self):
         return get_csv_files(self.data_folder)
 
     def load_file(self, filename):
         path = os.path.join(self.data_folder, filename)
         self.df = load_csv(path)
+
+        for col in self.df.columns:
+            try:
+                self.df[col] = pd.to_numeric(self.df[col])
+            except (ValueError, TypeError):
+                pass
+
         self.current_file = filename
         self.color_limits = None
+        self.filtered_df = None
+        self.last_filters = None
+
         return self.df
-    
+
     def load_all_files(self):
         self.layer_dfs = {}
 
@@ -56,69 +66,62 @@ class AppController:
             return []
         return list(self.df.columns)
 
-    def get_downsampled_data(self, x_col, y_col, val_col, step):
-        if self.df is None:
-            print("df ist None")
-            return None, None, None
+    # --- Data Preparation Helpers ---
+    def _apply_filters(self, df, filters):
+        for col, val in filters.items():
+            if col in df.columns and val and val != "Alle":
+                df = df[df[col].astype(str) == str(val)]
+        return df
 
-        if step < 1:
-            step = 1
+    def _prepare_dataframe(self, x_col, y_col, val_col, hover_cols, filters):
+        df = self._apply_filters(self.df, filters)
 
-        df_plot = self.df.iloc[::step]
+        all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
 
-        x = df_plot[x_col]
-        y = df_plot[y_col]
-        values = df_plot[val_col]
+        missing = [col for col in all_cols if col not in df.columns]
+        if missing:
+            print(f"Fehlende Spalten: {missing}")
+            return None
 
-        return x, y, values
+        df = df[all_cols].copy()
 
-    def plot_all_layers(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+        for col in all_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        clear_plot_frame(plot_frame)
+        df = df.dropna()
 
-        toolbar_frame = tk.Frame(plot_frame)
-        toolbar_frame.pack(fill="x")
+        if df.empty:
+            print("Keine Daten zum Plotten")
+            return None
 
-        canvas_frame = tk.Frame(plot_frame)
-        canvas_frame.pack(fill="both", expand=True)
+        return df
 
-        fig, ax = plt.subplots()
+    def _apply_sampling(self, df, x_col, y_col, xlim, ylim, step):
+        if xlim and ylim:
+            df = df[
+                (df[x_col] >= xlim[0]) & (df[x_col] <= xlim[1]) &
+                (df[y_col] >= ylim[0]) & (df[y_col] <= ylim[1])
+            ]
 
-        for filename, df in self.layer_dfs.items():
-            needed = [x_col, y_col, val_col]
-            if not all(col in df.columns for col in needed):
-                continue
+            if df.empty:
+                print("Keine sichtbaren Daten")
+                return None
 
-            df_plot = df[needed].copy()
-            for col in needed:
-                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-            df_plot = df_plot.dropna()
-            df_plot = df_plot.iloc[::step]
+            target_points = 5000
+            dynamic_step = max(1, len(df) // target_points)
+            return df.iloc[::dynamic_step]
 
-            if df_plot.empty:
-                continue
+        return df.iloc[::step]
 
-            sc = ax.scatter(
-                df_plot[x_col],
-                df_plot[y_col],
-                c=df_plot[val_col],
-                s=point_size,
-                label=filename
-            )
+    def _get_color_limits(self, val_col):
+        if self.color_limits is None:
+            vmin = pd.to_numeric(self.df[val_col], errors="coerce").min()
+            vmax = pd.to_numeric(self.df[val_col], errors="coerce").max()
+            self.color_limits = (vmin, vmax)
 
-        ax.set_xlabel(x_col)
-        ax.set_ylabel(y_col)
-        ax.set_title(val_col)
-        ax.set_aspect("equal", adjustable="box")
-        ax.legend()
+        return self.color_limits
 
-        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-
-        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
-        toolbar.update()
-
+    # --- 2D Plot ---
     def plot_current_data(
         self,
         plot_frame,
@@ -133,33 +136,6 @@ class AppController:
         ylim=None,
         preserve_limits=False
     ):
-
-        filters = filters or {}
-
-        # prüfen, ob Filter sich geändert haben
-        if filters != self.last_filters:
-            df_base = self.df.copy()
-
-            for col, val in filters.items():
-                if col in df_base.columns and val and val != "Alle":
-                    df_base = df_base[df_base[col].astype(str) == str(val)]
-
-            self.filtered_df = df_base
-            self.last_filters = filters
-        else:
-            df_base = self.filtered_df
-
-        self.current_plot_config = {
-            "plot_frame": plot_frame,
-            "x_col": x_col,
-            "y_col": y_col,
-            "val_col": val_col,
-            "step": step,
-            "hover_cols": hover_cols or [],
-            "point_size": point_size,
-            "filters": filters
-        }
-
         if self.df is None:
             print("Keine Daten geladen")
             return
@@ -167,268 +143,105 @@ class AppController:
         hover_cols = hover_cols or []
         filters = filters or {}
 
-       # df_base = self.df.copy()
+        if filters != self.last_filters:
+            self.filtered_df = self._apply_filters(self.df, filters)
+            self.last_filters = filters
 
-        # Filter anwenden
-        for col, val in filters.items():
-            if col in df_base.columns and val and val != "Alle":
-                df_base = df_base[df_base[col].astype(str) == str(val)]
+        df_base = self.filtered_df
 
-        all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
+        # Config speichern
+        self.current_plot_config = {
+            "plot_frame": plot_frame,
+            "x_col": x_col,
+            "y_col": y_col,
+            "val_col": val_col,
+            "step": step,
+            "hover_cols": hover_cols,
+            "point_size": point_size,
+            "filters": filters
+        }
 
-        missing = [col for col in all_cols if col not in df_base.columns]
-        if missing:
-            print(f"Fehlende Spalten: {missing}")
+        df = self._prepare_dataframe(x_col, y_col, val_col, hover_cols, {})
+        if df is None:
             return
 
-        df_plot = df_base[all_cols].copy()
-
-        for col in all_cols:
-            df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-
-        df_plot = df_plot.dropna()
-
-        if df_plot.empty:
-            print("Keine Daten zum Plotten")
+        df = self._apply_sampling(df, x_col, y_col, xlim, ylim, step)
+        if df is None:
             return
 
-        # Falls gezoomt: nur sichtbaren Bereich betrachten
-        if xlim is not None and ylim is not None:
-            df_plot = df_plot[
-                (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
-                (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
-            ]
+        x = df[x_col]
+        y = df[y_col]
+        values = df[val_col]
+        hover_data = df[hover_cols] if hover_cols else None
 
-            if df_plot.empty:
-                print("Keine sichtbaren Daten")
-                return
+        vmin, vmax = self._get_color_limits(val_col)
 
-            # dynamisches Resampling im sichtbaren Bereich
-            target_points = 5000
-            dynamic_step = max(1, len(df_plot) // target_points)
-            df_plot = df_plot.iloc[::dynamic_step]
-        else:
-            df_plot = df_plot.iloc[::step]
-
-        x = df_plot[x_col]
-        y = df_plot[y_col]
-        values = df_plot[val_col]
-        hover_data = df_plot[hover_cols] if hover_cols else None
-
-        if preserve_limits and xlim is not None and ylim is not None:
+        if preserve_limits:
             self.current_view_limits = (xlim, ylim)
 
-        if self.color_limits is None:
-            vmin = pd.to_numeric(self.df[val_col], errors="coerce").min()
-            vmax = pd.to_numeric(self.df[val_col], errors="coerce").max()
-            self.color_limits = (vmin, vmax)
-        else:
-            vmin, vmax = self.color_limits
-
-        self.is_updating_plot = True
-        try:
-           fig, ax, canvas = draw_scatter_plot(
-                plot_frame,
-                x,
-                y,
-                values,
-                x_col,
-                y_col,
-                val_col,
-                hover_data=hover_data,
-                point_size=point_size,
-                controller=self,
-                xlim=xlim if preserve_limits else None,
-                ylim=ylim if preserve_limits else None,
-                vmin=vmin,
-                vmax=vmax
-            )
-           self.last_ax = ax
-        finally:
-            self.is_updating_plot = False
-
-    def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
-        if not self.layer_dfs:
-            print("Keine Layer geladen")
-            return
-
-        clear_plot_frame(plot_frame)
-        plt.close("all")
-
-        toolbar_frame = tk.Frame(plot_frame)
-        toolbar_frame.pack(fill="x")
-
-        canvas_frame = tk.Frame(plot_frame)
-        canvas_frame.pack(fill="both", expand=True)
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="3d")
-
-        plotted_any = False
-        z_positions = []
-        z_labels = []
-
-        layer_spacing = 1.0
-
-        for layer_idx, (filename, df) in enumerate(sorted(self.layer_dfs.items())):
-            needed = [x_col, y_col, val_col]
-            if not all(col in df.columns for col in needed):
-                continue
-
-            df_plot = df[needed].copy()
-
-            for col in needed:
-                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-
-            df_plot = df_plot.dropna()
-            df_plot = df_plot.iloc[::step]
-
-            if df_plot.empty:
-                continue
-
-            x = df_plot[x_col]
-            y = df_plot[y_col]
-            z = [layer_idx * layer_spacing] * len(df_plot)
-            c = df_plot[val_col]
-
-            ax.scatter(
-                x,
-                y,
-                z,
-                c=c,
-                s=point_size,
-                cmap="turbo"
-            )
-
-            z_positions.append(layer_idx * layer_spacing)
-            z_labels.append(filename)
-            plotted_any = True
-
-        if not plotted_any:
-            print("Keine passenden Layer-Daten für 3D")
-            plt.close(fig)
-            return
-
-        ax.set_xlabel(x_col)
-        ax.set_ylabel(y_col)
-        ax.set_zlabel("Layer")
-        ax.set_title(f"3D Layer-Ansicht: {val_col}")
-
-        ax.set_zticks(z_positions)
-        ax.set_zticklabels(z_labels)
-
-        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-
-        toolbar = CustomToolbar(canvas, toolbar_frame, controller=None)
-        toolbar.update()
+        fig, ax, canvas = draw_scatter_plot(
+            plot_frame,
+            x,
+            y,
+            values,
+            x_col,
+            y_col,
+            val_col,
+            hover_data=hover_data,
+            point_size=point_size,
+            controller=self,
+            xlim=xlim if preserve_limits else None,
+            ylim=ylim if preserve_limits else None,
+            vmin=vmin,
+            vmax=vmax
+        )
 
         self.last_ax = ax
 
-    def plot_visible_data(self, xlim, ylim):
-        if self.is_updating_plot:
+    # --- Replot / Zoom ---
+    def replot_current_view(self, xlim, ylim):
+        if self.df is None or not self.current_plot_config:
             return
 
-        if not self.current_plot_config:
+        if self._is_replotting_view:
             return
-
-        self.current_view_limits = (xlim, ylim)
 
         cfg = self.current_plot_config
 
-        self.plot_current_data(
-            cfg["plot_frame"],
+        df = self._prepare_dataframe(
             cfg["x_col"],
             cfg["y_col"],
             cfg["val_col"],
-            cfg["step"],
             cfg["hover_cols"],
-            cfg["point_size"],
-            cfg["filters"],
-            xlim=xlim,
-            ylim=ylim,
-            preserve_limits=True
+            cfg["filters"]
         )
 
-    def replot_current_view(self, xlim, ylim):  
-        if self.df is None or not self.current_plot_config:
-            return
-        if self._is_replotting_view:
-            return
-        if getattr(self, "_is_replotting_view", False):
+        if df is None:
             return
 
-        cfg = self.current_plot_config
-        x_col = cfg["x_col"]
-        y_col = cfg["y_col"]
-        val_col = cfg["val_col"]
-        hover_cols = cfg["hover_cols"]
-        point_size = cfg["point_size"]
-        plot_frame = cfg["plot_frame"]
-        filters = cfg["filters"]
-
-        df_base = self.df.copy()
-
-        # Filter anwenden
-        for col, val in filters.items():
-            if col in df_base.columns and val and val != "Alle":
-                df_base = df_base[df_base[col].astype(str) == str(val)]
-
-        all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
-        df_plot = df_base[all_cols].copy()
-
-        for col in all_cols:
-            df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-
-        df_plot = df_plot.dropna()
-
-        # nur sichtbaren Bereich nehmen
-        df_plot = df_plot[
-            (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
-            (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
-        ]
-
-        if df_plot.empty:
-            print("Keine sichtbaren Daten")
+        df = self._apply_sampling(df, cfg["x_col"], cfg["y_col"], xlim, ylim, step=1)
+        if df is None:
             return
 
-        # dynamischer Step
-        visible_count = len(df_plot)
+        x = df[cfg["x_col"]]
+        y = df[cfg["y_col"]]
+        values = df[cfg["val_col"]]
+        hover_data = df[cfg["hover_cols"]] if cfg["hover_cols"] else None
 
-        if visible_count > 200000:
-            dynamic_step = 500
-        elif visible_count > 50000:
-            dynamic_step = 100
-        elif visible_count > 10000:
-            dynamic_step = 20
-        elif visible_count > 2000:
-            dynamic_step = 5
-        else:
-            dynamic_step = 1
-
-        df_plot = df_plot.iloc[::dynamic_step]
-
-        x = df_plot[x_col]
-        y = df_plot[y_col]
-        values = df_plot[val_col]
-        hover_data = df_plot[hover_cols] if hover_cols else None
-
-        #self.current_view_limits = (xlim, ylim)
         vmin, vmax = self.color_limits
 
         self._is_replotting_view = True
         try:
             fig, ax, canvas = draw_scatter_plot(
-                plot_frame,
+                cfg["plot_frame"],
                 x,
                 y,
                 values,
-                x_col,
-                y_col,
-                val_col,
+                cfg["x_col"],
+                cfg["y_col"],
+                cfg["val_col"],
                 hover_data=hover_data,
-                point_size=point_size,
+                point_size=cfg["point_size"],
                 controller=self,
                 xlim=xlim,
                 ylim=ylim,
@@ -445,11 +258,7 @@ class AppController:
             return
 
         cfg = self.current_plot_config
-
-        xlim = None
-        ylim = None
-        if self.current_view_limits is not None:
-            xlim, ylim = self.current_view_limits
+        xlim, ylim = self.current_view_limits or (None, None)
 
         self.plot_current_data(
             cfg["plot_frame"],
@@ -465,77 +274,13 @@ class AppController:
             preserve_limits=True
         )
 
-    def reset_plot_view(self):
-        if hasattr(self, "last_plot_args") and self.last_plot_args:
-            self.redraw_plot()
-
-    def plot_visible_data(self, xlim, ylim):
-        if self.df is None or not self.current_plot_config:
-            return
-
-        if self.is_updating_plot:
-            return
-
-        self.is_updating_plot = True
-        try:
-            cfg = self.current_plot_config
-            x_col = cfg["x_col"]
-            y_col = cfg["y_col"]
-            val_col = cfg["val_col"]
-            hover_cols = cfg["hover_cols"] or []
-            point_size = cfg["point_size"]
-            plot_frame = cfg["plot_frame"]
-
-            cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
-            df_plot = self.df[cols].copy()
-
-            for col in cols:
-                df_plot[col] = pd.to_numeric(df_plot[col], errors="coerce")
-
-            df_plot = df_plot.dropna()
-
-            df_visible = df_plot[
-                (df_plot[x_col] >= xlim[0]) & (df_plot[x_col] <= xlim[1]) &
-                (df_plot[y_col] >= ylim[0]) & (df_plot[y_col] <= ylim[1])
-            ]
-
-            if df_visible.empty:
-                return
-
-            target_points = 5000
-            step = max(1, len(df_visible) // target_points)
-            df_visible = df_visible.iloc[::step]
-
-            x = df_visible[x_col]
-            y = df_visible[y_col]
-            values = df_visible[val_col]
-            hover_data = df_visible[hover_cols] if hover_cols else None
-
-            draw_scatter_plot(
-                plot_frame,
-                x,
-                y,
-                values,
-                x_col,
-                y_col,
-                val_col,
-                hover_data,
-                point_size,
-                controller=self
-            )
-        finally:
-            self.is_updating_plot = False
-
     def reset_view(self):
         if not self.current_plot_config or self.df is None:
             return
 
+        self.current_view_limits = None
         cfg = self.current_plot_config
 
-        # Zoom zurücksetzen
-        self.current_view_limits = None
-
-        # Original-Plot neu zeichnen (mit ursprünglichem Step)
         self.plot_current_data(
             cfg["plot_frame"],
             cfg["x_col"],
@@ -544,8 +289,24 @@ class AppController:
             cfg["step"],
             cfg["hover_cols"],
             cfg["point_size"],
-            cfg["filters"],
-            xlim=None,
-            ylim=None,
-            preserve_limits=False
+            cfg["filters"]
         )
+
+    # --- 3D Plot ---
+    def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+        from plotter import draw_3d_layers
+
+        if not self.layer_dfs:
+            print("Keine Layer geladen")
+            return
+
+        draw_3d_layers(
+            plot_frame,
+            self.layer_dfs,
+            x_col,
+            y_col,
+            val_col,
+            step,
+            point_size
+        )
+

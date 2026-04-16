@@ -22,6 +22,9 @@ def start_gui():
     options_frame = tk.LabelFrame(top_frame, text="Optionen")
     options_frame.pack(fill="x", pady=5)
 
+    status_label = tk.Label(options_frame, text="", fg="red")
+    status_label.grid(row=1, column=0, columnspan=10, sticky="w")
+
     bottom_frame = tk.Frame(root)
     bottom_frame.pack(fill="x", padx=10, pady=5)
 
@@ -125,13 +128,18 @@ def start_gui():
     part_combo["values"] = ["Alle"]
     part_combo.set("Alle")
 
+    tag_combo.bind("<<ComboboxSelected>>", lambda e: plot_selected_data())
+    outline_combo.bind("<<ComboboxSelected>>", lambda e: plot_selected_data())
+    part_combo.bind("<<ComboboxSelected>>", lambda e: plot_selected_data())
+    file_combo.bind("<<ComboboxSelected>>", lambda e: [load_selected_file(), plot_selected_data()])
+
     # ---------- Status ----------
     hover_vars = {}
     known_files = set()
 
     # ---------- Hilfsfunktionen ----------
     def fill_file_list():
-        files = controller.get_file_list()
+        files = sorted(controller.get_file_list())
         file_combo["values"] = files
         if files and not file_combo.get():
             file_combo.set(files[0])
@@ -194,6 +202,7 @@ def start_gui():
         set_filter_values(part_combo, "bauteil")
 
     def plot_selected_data():
+              
         if controller.df is None:
             load_selected_file()
 
@@ -239,12 +248,6 @@ def start_gui():
                 plot_frame, x_col, y_col, val_col, step, point_size
             )
 
-    def update_detail_view():
-        if hasattr(controller, "last_ax") and controller.last_ax is not None:
-            xlim = controller.last_ax.get_xlim()
-            ylim = controller.last_ax.get_ylim()
-            controller.replot_current_view(xlim, ylim)
-
     def reset_view():
         controller.reset_view()
 
@@ -261,7 +264,6 @@ def start_gui():
 
     def check_for_new_files():
         nonlocal known_files
-
         if auto_reload_var.get():
             files = fill_file_list()
             current_files = set(files)
@@ -271,14 +273,24 @@ def start_gui():
                 newest_file = sorted(new_files)[-1]
 
                 if file_is_ready(newest_file):
-                    file_combo.set(newest_file)
-                    try:
-                        load_selected_file()
-                        plot_selected_data()
+                    mode = view_mode_var.get()
+
+                    # 2D: nur Dateiliste aktualisieren, aber aktuelle Ansicht nicht zerstören
+                    if mode == "2D":
                         known_files = current_files
-                        print(f"Neue Datei geladen: {newest_file}")
-                    except PermissionError:
-                        print(f"Datei noch gesperrt: {newest_file}")
+                        print(f"Neue Datei erkannt (2D, nicht automatisch geladen): {newest_file}")
+                        status_label.config(text=f"Neue Datei verfügbar: {newest_file}")
+
+                    # 3D: alle Layer neu laden und 3D-Plot aktualisieren
+                    else:
+                        try:
+                            controller.load_all_files()
+                            plot_selected_data()
+                            known_files = current_files
+                            print(f"Neue Datei in 3D geladen: {newest_file}")
+                            status_label.config(text="")
+                        except PermissionError:
+                            print(f"Datei noch gesperrt: {newest_file}")
                 else:
                     print(f"Datei noch nicht fertig: {newest_file}")
             else:
@@ -296,17 +308,12 @@ def start_gui():
         root.destroy()
 
     # ---------- Buttons ----------
-    load_file_button = tk.Button(options_frame, text="Datei laden", command=load_selected_file)
-    load_file_button.grid(row=0, column=5, padx=5, pady=5)
 
     plot_button = tk.Button(options_frame, text="Plotten", command=plot_selected_data)
     plot_button.grid(row=0, column=6, padx=5, pady=5)
 
     reset_button = tk.Button(options_frame, text="Ansicht zurücksetzen", command=reset_view)
     reset_button.grid(row=0, column=7, padx=5, pady=5)
-
-    detail_button = tk.Button(options_frame, text="Detailansicht aktualisieren", command=update_detail_view)
-    detail_button.grid(row=0, column=8, padx=5, pady=5)
 
     # ---------- Start ----------
     known_files = set(fill_file_list())

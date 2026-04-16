@@ -34,17 +34,24 @@ def draw_scatter_plot(
     vmax=None
 ):
 
-    clear_plot_frame(plot_frame)
-   # plt.close("all")
+    if controller is not None and controller.plot_toolbar_frame is None:
+        clear_plot_frame(plot_frame)
 
-    toolbar_frame = tk.Frame(plot_frame)
-    toolbar_frame.pack(fill="x")
+        controller.plot_toolbar_frame = tk.Frame(plot_frame)
+        controller.plot_toolbar_frame.pack(fill="x")
 
-    canvas_frame = tk.Frame(plot_frame)
-    canvas_frame.pack(fill="both", expand=True)
+        controller.plot_canvas_frame = tk.Frame(plot_frame)
+        controller.plot_canvas_frame.pack(fill="both", expand=True)
 
-    fig, ax = plt.subplots()
-    sc = ax.scatter(x, y, c=values, s=point_size, vmin=vmin, vmax=vmax)
+    toolbar_frame = controller.plot_toolbar_frame if controller is not None else tk.Frame(plot_frame)
+    canvas_frame = controller.plot_canvas_frame if controller is not None else tk.Frame(plot_frame)
+
+    if controller is None:
+        toolbar_frame.pack(fill="x")
+        canvas_frame.pack(fill="both", expand=True)
+
+    fig, ax = plt.subplots(figsize=(8,6))
+    sc = ax.scatter(x, y, c=values, s=point_size, vmin=vmin, vmax=vmax, cmap="turbo")
 
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
@@ -60,8 +67,26 @@ def draw_scatter_plot(
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
+    for widget in canvas_frame.winfo_children():
+        widget.destroy()
+
+    for widget in toolbar_frame.winfo_children():
+        widget.destroy()
+
     canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
     canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    toolbar = CustomToolbar(canvas, toolbar_frame, controller=controller)
+    toolbar.update()
+
+    if controller is not None:
+        controller.plot_canvas = canvas
+        controller.plot_toolbar = toolbar
+        controller.plot_canvas_widget = canvas.get_tk_widget()
 
     pending_job = {"id": None}
 

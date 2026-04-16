@@ -4,9 +4,10 @@ from csv_reader import get_csv_files, load_csv
 from plotter import draw_scatter_plot
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from plotter import clear_plot_frame
+from plotter import clear_plot_frame, CustomToolbar
 import tkinter as tk
 from mpl_toolkits.mplot3d import Axes3D
+
 
 
 class AppController:
@@ -21,6 +22,14 @@ class AppController:
         self.last_ax = None
         self._is_replotting_view = False
         self.color_limits = None
+        self.filtered_df = None
+        self.last_filters = None
+        self.layer_dfs = {}
+        self.plot_canvas = None
+        self.plot_toolbar = None
+        self.plot_canvas_widget = None
+        self.plot_toolbar_frame = None
+        self.plot_canvas_frame = None
 
     def get_file_list(self):
         return get_csv_files(self.data_folder)
@@ -125,6 +134,21 @@ class AppController:
         preserve_limits=False
     ):
 
+        filters = filters or {}
+
+        # prüfen, ob Filter sich geändert haben
+        if filters != self.last_filters:
+            df_base = self.df.copy()
+
+            for col, val in filters.items():
+                if col in df_base.columns and val and val != "Alle":
+                    df_base = df_base[df_base[col].astype(str) == str(val)]
+
+            self.filtered_df = df_base
+            self.last_filters = filters
+        else:
+            df_base = self.filtered_df
+
         self.current_plot_config = {
             "plot_frame": plot_frame,
             "x_col": x_col,
@@ -143,7 +167,7 @@ class AppController:
         hover_cols = hover_cols or []
         filters = filters or {}
 
-        df_base = self.df.copy()
+       # df_base = self.df.copy()
 
         # Filter anwenden
         for col, val in filters.items():
@@ -198,6 +222,8 @@ class AppController:
             vmin = pd.to_numeric(self.df[val_col], errors="coerce").min()
             vmax = pd.to_numeric(self.df[val_col], errors="coerce").max()
             self.color_limits = (vmin, vmax)
+        else:
+            vmin, vmax = self.color_limits
 
         self.is_updating_plot = True
         try:
@@ -222,6 +248,9 @@ class AppController:
             self.is_updating_plot = False
 
     def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+        if not self.layer_dfs:
+            print("Keine Layer geladen")
+            return
 
         clear_plot_frame(plot_frame)
         plt.close("all")
@@ -236,6 +265,10 @@ class AppController:
         ax = fig.add_subplot(111, projection="3d")
 
         plotted_any = False
+        z_positions = []
+        z_labels = []
+
+        layer_spacing = 1.0
 
         for layer_idx, (filename, df) in enumerate(sorted(self.layer_dfs.items())):
             needed = [x_col, y_col, val_col]
@@ -255,10 +288,20 @@ class AppController:
 
             x = df_plot[x_col]
             y = df_plot[y_col]
-            z = [layer_idx] * len(df_plot)
+            z = [layer_idx * layer_spacing] * len(df_plot)
             c = df_plot[val_col]
 
-            ax.scatter(x, y, z, c=c, s=point_size)
+            ax.scatter(
+                x,
+                y,
+                z,
+                c=c,
+                s=point_size,
+                cmap="turbo"
+            )
+
+            z_positions.append(layer_idx * layer_spacing)
+            z_labels.append(filename)
             plotted_any = True
 
         if not plotted_any:
@@ -271,12 +314,17 @@ class AppController:
         ax.set_zlabel("Layer")
         ax.set_title(f"3D Layer-Ansicht: {val_col}")
 
+        ax.set_zticks(z_positions)
+        ax.set_zticklabels(z_labels)
+
         canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
-        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+        toolbar = CustomToolbar(canvas, toolbar_frame, controller=None)
         toolbar.update()
+
+        self.last_ax = ax
 
     def plot_visible_data(self, xlim, ylim):
         if self.is_updating_plot:
@@ -391,8 +439,6 @@ class AppController:
             self.current_view_limits = (xlim, ylim)
         finally:
             self._is_replotting_view = False
-
-
 
     def redraw_plot(self):
         if not self.current_plot_config:

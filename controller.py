@@ -1,8 +1,8 @@
 ﻿import os
 import pandas as pd
-from csv_reader import get_csv_files, load_csv
+from csv_reader import get_csv_files, load_csv, get_csv_columns, load_data_fast
 from plotter import draw_scatter_plot
-
+import time
 
 class AppController:
 
@@ -30,26 +30,26 @@ class AppController:
         self.plot_toolbar_frame = None
         self.plot_canvas_frame = None
 
+        self.loaded_cols = []
+
     # --- Dateiverwaltung ---
     def get_file_list(self):
         return get_csv_files(self.data_folder)
 
     def load_file(self, filename):
         path = os.path.join(self.data_folder, filename)
-        self.df = load_csv(path)
 
-        for col in self.df.columns:
-            try:
-                self.df[col] = pd.to_numeric(self.df[col])
-            except (ValueError, TypeError):
-                pass
-
+        t0 = time.time()
         self.current_file = filename
+        self.current_file_path = path
+        self.columns = get_csv_columns(path)
+        self.df = None
+
         self.color_limits = None
         self.filtered_df = None
         self.last_filters = None
 
-        return self.df
+        print(f"[Timing] CSV header load: {time.time() - t0:.3f}s")
 
     def load_all_files(self):
         self.layer_dfs = {}
@@ -62,9 +62,37 @@ class AppController:
                 print(f"Fehler beim Laden von {filename}: {e}")
 
     def get_columns(self):
-        if self.df is None:
-            return []
-        return list(self.df.columns)
+        return getattr(self, "columns", [])#
+
+    def load_plot_data(self, x_col, y_col, val_col, hover_cols=None, filters=None):
+        hover_cols = hover_cols or []
+        filters = filters or {}
+
+        needed_cols = list(dict.fromkeys(
+            [x_col, y_col, val_col] + hover_cols + list(filters.keys())
+        ))
+        needed_cols = [col for col in needed_cols if col in self.columns]
+
+        t0 = time.time()
+        self.df = load_csv(self.current_file_path, usecols=needed_cols)
+        print(f"[Timing] CSV plot load: {time.time() - t0:.3f}s")
+
+        numeric_cols = [x_col, y_col, val_col] + [col for col in hover_cols if col in self.df.columns]
+
+        for col in dict.fromkeys(numeric_cols):
+            self.df[col] = pd.to_numeric(self.df[col], errors="coerce")
+
+        self.loaded_cols = needed_cols
+        self.filtered_df = None
+        self.last_filters = None
+        self.color_limits = None
+        self.loaded_cols = needed_cols
+
+    def _get_needed_cols(self, x_col, y_col, val_col, hover_cols, filters):
+        needed_cols = list(dict.fromkeys(
+            [x_col, y_col, val_col] + hover_cols + list(filters.keys())
+        ))
+        return [col for col in needed_cols if col in self.columns]
 
     # --- Data Preparation Helpers ---
     def _apply_filters(self, df, filters):
@@ -73,9 +101,7 @@ class AppController:
                 df = df[df[col].astype(str) == str(val)]
         return df
 
-    def _prepare_dataframe(self, x_col, y_col, val_col, hover_cols, filters):
-        df = self._apply_filters(self.df, filters)
-
+    def _prepare_dataframe_from_df(self, df, x_col, y_col, val_col, hover_cols):
         all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
 
         missing = [col for col in all_cols if col not in df.columns]
@@ -83,12 +109,7 @@ class AppController:
             print(f"Fehlende Spalten: {missing}")
             return None
 
-        df = df[all_cols].copy()
-
-        for col in all_cols:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        df = df.dropna()
+        df = df[all_cols].dropna()
 
         if df.empty:
             print("Keine Daten zum Plotten")
@@ -110,7 +131,6 @@ class AppController:
             target_points = 5000
             dynamic_step = max(1, len(df) // target_points)
             return df.iloc[::dynamic_step]
-
         return df.iloc[::step]
 
     def _get_color_limits(self, val_col):
@@ -136,20 +156,11 @@ class AppController:
         ylim=None,
         preserve_limits=False
     ):
-        if self.df is None:
-            print("Keine Daten geladen")
-            return
-
         hover_cols = hover_cols or []
         filters = filters or {}
 
-        if filters != self.last_filters:
-            self.filtered_df = self._apply_filters(self.df, filters)
-            self.last_filters = filters
+        t0 = time.time()
 
-        df_base = self.filtered_df
-
-        # Config speichern
         self.current_plot_config = {
             "plot_frame": plot_frame,
             "x_col": x_col,
@@ -161,13 +172,41 @@ class AppController:
             "filters": filters
         }
 
-        df = self._prepare_dataframe(x_col, y_col, val_col, hover_cols, {})
+        needed_cols = self._get_needed_cols(x_col, y_col, val_col, hover_cols, filters)
+
+        # Nur neu laden, wenn wirklich andere Spalten gebraucht werden
+        if self.df is None or self.loaded_cols != needed_cols:
+            self.load_plot_data(x_col, y_col, val_col, hover_cols, filters)
+
+        if self.df is None:
+            print("Keine Daten geladen")
+            return
+
+        if filters != self.last_filters or self.filtered_df is None:
+            self.filtered_df = self._apply_filters(self.df, filters)
+            self.last_filters = filters.copy()
+
+        df_base = self.filtered_df
+
+        df = self._prepare_dataframe_from_df(
+            df_base,
+            x_col,
+            y_col,
+            val_col,
+            hover_cols
+        )
         if df is None:
             return
 
+        t1 = time.time()
+        print(f"[Timing] Prepare DF: {t1 - t0:.3f}s")
+
         df = self._apply_sampling(df, x_col, y_col, xlim, ylim, step)
-        if df is None:
+        if df is None or df.empty:
             return
+
+        t2 = time.time()
+        print(f"[Timing] Sampling: {t2 - t1:.3f}s")
 
         x = df[x_col]
         y = df[y_col]
@@ -196,6 +235,11 @@ class AppController:
             vmax=vmax
         )
 
+        t3 = time.time()
+        print(f"[Timing] Plot: {t3 - t2:.3f}s")
+        print(f"[Timing] TOTAL: {t3 - t0:.3f}s")
+        print("-" * 40)
+
         self.last_ax = ax
 
     # --- Replot / Zoom ---
@@ -207,20 +251,26 @@ class AppController:
             return
 
         cfg = self.current_plot_config
+        filters = cfg["filters"]
 
-        df = self._prepare_dataframe(
+        if filters != self.last_filters or self.filtered_df is None:
+            self.filtered_df = self._apply_filters(self.df, filters)
+            self.last_filters = filters.copy()
+
+        df_base = self.filtered_df
+
+        df = self._prepare_dataframe_from_df(
+            df_base,
             cfg["x_col"],
             cfg["y_col"],
             cfg["val_col"],
-            cfg["hover_cols"],
-            cfg["filters"]
+            cfg["hover_cols"]
         )
-
         if df is None:
             return
 
         df = self._apply_sampling(df, cfg["x_col"], cfg["y_col"], xlim, ylim, step=1)
-        if df is None:
+        if df is None or df.empty:
             return
 
         x = df[cfg["x_col"]]
@@ -252,27 +302,6 @@ class AppController:
             self.current_view_limits = (xlim, ylim)
         finally:
             self._is_replotting_view = False
-
-    def redraw_plot(self):
-        if not self.current_plot_config:
-            return
-
-        cfg = self.current_plot_config
-        xlim, ylim = self.current_view_limits or (None, None)
-
-        self.plot_current_data(
-            cfg["plot_frame"],
-            cfg["x_col"],
-            cfg["y_col"],
-            cfg["val_col"],
-            cfg["step"],
-            cfg["hover_cols"],
-            cfg["point_size"],
-            cfg["filters"],
-            xlim=xlim,
-            ylim=ylim,
-            preserve_limits=True
-        )
 
     def reset_view(self):
         if not self.current_plot_config or self.df is None:

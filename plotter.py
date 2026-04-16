@@ -1,7 +1,10 @@
-﻿import tkinter as tk
+﻿import os
+import tkinter as tk
 import matplotlib.pyplot as plt
 import mplcursors
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import time
+import pandas as pd
 
 
 # --- Toolbar ---
@@ -205,7 +208,6 @@ def draw_scatter_plot(
 
     canvas.mpl_connect("button_release_event", on_mouse_release)
     canvas.mpl_connect("scroll_event", on_scroll)
-
     return fig, ax, canvas
 
 # --- 3D Plot ---

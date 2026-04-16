@@ -167,7 +167,9 @@ class AppGUI:
         self._set_combo_values(self.part_combo, ["Alle"], "Alle")
 
         self.known_files = set(self.fill_file_list())
+
         self.load_selected_file()
+        self.plot_selected_data()
         self.check_for_new_files()
 
     def _set_combo_values(self, combo, values, default="Alle"):
@@ -359,16 +361,37 @@ class AppGUI:
         if self.auto_reload_var.get():
             files = self.fill_file_list()
             current_files = set(files)
+
             new_files = current_files - self.known_files
 
             if new_files:
                 newest_file = sorted(new_files)[-1]
 
                 if self.file_is_ready(newest_file):
-                    if self.view_mode_var.get() == "2D":
-                        self._handle_new_file_in_2d(newest_file, current_files)
+                    mode = self.view_mode_var.get()
+
+                    if mode == "2D":
+                        try:
+                            self.file_combo.set(newest_file)
+                            self.load_selected_file()
+                            self.plot_selected_data()
+
+                            self.known_files = current_files
+                            print(f"Neue Datei automatisch geladen (2D): {newest_file}")
+                            self.status_label.config(text="")
+                        except PermissionError:
+                            print(f"Datei noch gesperrt: {newest_file}")
+
                     else:
-                        self._handle_new_file_in_3d(newest_file, current_files)
+                        try:
+                            self.controller.load_all_files()
+                            self.plot_selected_data()
+
+                            self.known_files = current_files
+                            print(f"Neue Datei in 3D geladen: {newest_file}")
+                            self.status_label.config(text="")
+                        except PermissionError:
+                            print(f"Datei noch gesperrt: {newest_file}")
                 else:
                     print(f"Datei noch nicht fertig: {newest_file}")
             else:

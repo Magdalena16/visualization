@@ -336,6 +336,7 @@ class AppController:
             y_col,
             val_col,
             step,
-            point_size
+            point_size,
+            controller=self
         )
 

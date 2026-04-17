@@ -218,10 +218,18 @@ def draw_3d_layers(
     y_col,
     val_col,
     step,
-    point_size=5
+    point_size=5,
+    controller=None
 ):
     clear_plot_frame(plot_frame)
     plt.close("all")
+
+    if controller is not None:
+        controller.plot_canvas = None
+        controller.plot_toolbar = None
+        controller.plot_canvas_widget = None
+        controller.plot_toolbar_frame = None
+        controller.plot_canvas_frame = None
 
     toolbar_frame = tk.Frame(plot_frame)
     toolbar_frame.pack(fill="x")

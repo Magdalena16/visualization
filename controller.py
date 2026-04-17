@@ -14,8 +14,9 @@ class AppController:
         self.layer_dfs = {}
 
         self.current_file = None
-        self.current_plot_config = {}
+        self.current_plot_config = None
         self.current_view_limits = None
+        self.is_updating_plot = False
 
         self.filtered_df = None
         self.last_filters = None
@@ -235,6 +236,11 @@ class AppController:
             vmax=vmax
         )
 
+        self.current_figure = fig
+        self.current_ax = ax
+        self.current_canvas = canvas
+        self.connect_axes_events(ax)
+
         t3 = time.time()
         print(f"[Timing] Plot: {t3 - t2:.3f}s")
         print(f"[Timing] TOTAL: {t3 - t0:.3f}s")
@@ -242,7 +248,52 @@ class AppController:
 
         self.last_ax = ax
 
+    def plot_visible_data(self, xlim, ylim):
+        if self.df is None or not self.current_plot_config:
+            return
+
+        if self.is_updating_plot:
+            return
+
+        self.is_updating_plot = True
+        try:
+            cfg = self.current_plot_config
+
+            self.plot_current_data(
+                cfg["plot_frame"],
+                cfg["x_col"],
+                cfg["y_col"],
+                cfg["val_col"],
+                cfg["step"],
+                cfg["hover_cols"],
+                cfg["point_size"],
+                cfg["filters"],
+                xlim=xlim,
+                ylim=ylim,
+                preserve_limits=True
+            )
+        finally:
+            self.is_updating_plot = False
+
+    def connect_axes_events(self, ax):
+        def on_release(_event):
+            if self.is_updating_plot:
+                return
+
+            try:
+                xlim = ax.get_xlim()
+                ylim = ax.get_ylim()
+                self.current_view_limits = (xlim, ylim)
+                self.plot_visible_data(xlim, ylim)
+            except Exception:
+                pass
+
+        ax.figure.canvas.mpl_connect("button_release_event", on_release)
+
     # --- Replot / Zoom ---
+
+    #--- replot current view ---
+
     def replot_current_view(self, xlim, ylim):
         if self.df is None or not self.current_plot_config:
             return
@@ -266,12 +317,24 @@ class AppController:
             cfg["val_col"],
             cfg["hover_cols"]
         )
-        if df is None:
-            return
-
-        df = self._apply_sampling(df, cfg["x_col"], cfg["y_col"], xlim, ylim, step=1)
         if df is None or df.empty:
             return
+
+        #--- auf sichtbaren Bereich begrenzen ---
+        df = df[
+            (df[cfg["x_col"]] >= xlim[0]) & (df[cfg["x_col"]] <= xlim[1]) &
+            (df[cfg["y_col"]] >= ylim[0]) & (df[cfg["y_col"]] <= ylim[1])
+        ]
+        if df.empty:
+            return
+
+        #--- nur bei wirklich vielen sichtbaren Punkten samplen ---
+        visible_points = len(df)
+
+        max_visible_points = 10000
+        if visible_points > max_visible_points:
+            step = max(1, int(visible_points / max_visible_points))
+            df = df.iloc[::step]
 
         x = df[cfg["x_col"]]
         y = df[cfg["y_col"]]
@@ -302,6 +365,8 @@ class AppController:
             self.current_view_limits = (xlim, ylim)
         finally:
             self._is_replotting_view = False
+
+        return len(df), xlim, ylim
 
     def reset_view(self):
         if not self.current_plot_config or self.df is None:

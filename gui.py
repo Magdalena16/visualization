@@ -1,6 +1,7 @@
 ﻿import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, filedialog
+import time
 
 from controller import AppController
 
@@ -25,11 +26,14 @@ class AppGUI:
 
     def _create_widgets(self):
         self._create_main_frames()
+        self._create_toolbar()
+        self._create_statusbar()
         self._create_status_label()
         self._create_scrollable_hover_area()
         self._create_settings_widgets()
         self._create_option_widgets()
         self._create_filter_widgets()
+        
 
     def _create_main_frames(self):
         top_frame = tk.Frame(self.root)
@@ -52,6 +56,40 @@ class AppGUI:
 
         self.plot_frame = tk.Frame(self.root, bd=1, relief="sunken")
         self.plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        #--- toolbar ---
+
+    def _create_toolbar(self):
+        toolbar = ttk.Frame(self.root)
+        toolbar.pack(fill="x", padx=10, pady=(5, 0))
+
+        tk.Button(toolbar, text="Plotten", command=self.plot_selected_data).pack(side="left", padx=2)
+        tk.Button(toolbar, text="Reset View", command=self.reset_view).pack(side="left", padx=2)
+        tk.Button(toolbar, text="Filter löschen", command=self.clear_filters).pack(side="left", padx=2)
+        tk.Button(toolbar, text="2D/3D", command=self.toggle_dimension).pack(side="left", padx=2)
+        tk.Button(toolbar, text="Export PNG", command=self.export_current_plot).pack(side="left", padx=2)
+
+        self.sampling_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            toolbar,
+            text="Sampling",
+            variable=self.sampling_var
+        ).pack(side="left", padx=10)
+
+    #--- statusbar ---
+
+    def _create_statusbar(self):
+        statusbar = ttk.Frame(self.root)
+        statusbar.pack(fill="x", side="bottom", padx=10, pady=3)
+
+        self.file_status_label = ttk.Label(statusbar, text="Keine Datei geladen")
+        self.file_status_label.pack(side="left")
+
+        self.view_status_label = ttk.Label(statusbar, text="")
+        self.view_status_label.pack(side="right", padx=(0, 15))
+
+        self.plot_time_label = ttk.Label(statusbar, text="")
+        self.plot_time_label.pack(side="right", padx=(0, 15))
 
     def _create_status_label(self):
         self.status_label = tk.Label(self.options_frame, text="", fg="red")
@@ -199,11 +237,24 @@ class AppGUI:
             combo.set(columns[fallback_index])
 
     def _get_plot_config(self):
+        step = self._get_int_entry(self.step_entry, 200)
+
+        #--- Auto-Sampling ---
+        if self.controller.df is not None:
+            total_rows = len(self.controller.df)
+
+            if total_rows > 200000:
+                step = max(step, 10)
+            if total_rows > 500000:
+                step = max(step, 20)
+            if total_rows > 1000000:
+                step = max(step, 50)
+
         return {
             "x_col": self.x_combo.get(),
             "y_col": self.y_combo.get(),
             "val_col": self.value_combo.get(),
-            "step": self._get_int_entry(self.step_entry, 200),
+            "step": step,
             "point_size": self._get_float_entry(self.point_size_entry, 5),
             "hover_cols": self.get_selected_hover_columns(),
             "filters": self.get_filters(),
@@ -286,6 +337,11 @@ class AppGUI:
         self.set_filter_values(self.outline_combo, "outline")
         self.set_filter_values(self.part_combo, "bauteil")
 
+        self.file_status_label.config(text=f"Datei: {filename}")
+
+        if hasattr(self, "file_status_label"):
+            self.file_status_label.config(text=f"Datei: {filename}")
+
     def get_selected_hover_columns(self):
         return [col for col, var in self.hover_vars.items() if var.get()]
 
@@ -296,27 +352,75 @@ class AppGUI:
             "bauteil": self.part_combo.get(),
         }
 
+    #--- filter reset ---
+
+    def clear_filters(self):
+        self.tag_combo.set("Alle")
+        self.outline_combo.set("Alle")
+        self.part_combo.set("Alle")
+
+        self.plot_selected_data()
+
+    #--- plot selected data ---
+
     def plot_selected_data(self):
         self.status_label.config(text="Lade Plot...")
         self.root.update_idletasks()
-        
+
+        start_time = time.perf_counter()
+
         if self.controller.df is None:
             self.load_selected_file()
 
         config = self._get_plot_config()
 
+        # Sampling Toggle berücksichtigen
+        if hasattr(self, "sampling_var") and not self.sampling_var.get():
+            config["step"] = 1
+
         if not config["x_col"] or not config["y_col"] or not config["val_col"]:
             print("Spaltenauswahl fehlt")
+            self.status_label.config(text="")
             return
 
+        num_points = None
+
         if config["mode"] == "2D":
-            self._plot_2d(config)
+            num_points = self._plot_2d(config)
         else:
             self._plot_3d(config)
+
+        #--- Plotzeit berechnen ---
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+
+        #--- Statusbar updaten ---
+        if hasattr(self, "plot_time_label"):
+            self.plot_time_label.config(text=f"Plotzeit: {duration:.2f}s")
+        
+        if num_points is not None and hasattr(self, "view_status_label"):
+            current_text = self.view_status_label.cget("text")
+            self.view_status_label.config(text=f"Punkte: {num_points}    {current_text}")
 
         self.status_label.config(text="")
 
     def _plot_2d(self, config):
+        # Anzahl Punkte vorberechnen (für Anzeige)
+        df = self.controller.df
+
+        if df is not None:
+            filtered_df = df.copy()
+
+            filters = config["filters"]
+            for col, val in filters.items():
+                if col in filtered_df.columns and val and val != "Alle":
+                    filtered_df = filtered_df[filtered_df[col].astype(str) == str(val)]
+
+            step = max(1, int(config["step"]))
+            num_points = len(filtered_df.iloc[::step])
+        else:
+            num_points = 0
+
         self.controller.plot_current_data(
             self.plot_frame,
             config["x_col"],
@@ -327,6 +431,18 @@ class AppGUI:
             config["point_size"],
             config["filters"]
         )
+
+        if hasattr(self, "plot_time_label"):
+            current_text = self.plot_time_label.cget("text")
+            self.plot_time_label.config(text=f"{current_text} | Punkte: {num_points}")
+
+        if hasattr(self.controller, "current_view_limits") and self.controller.current_view_limits is not None:
+            xlim, ylim = self.controller.current_view_limits
+            self.view_status_label.config(
+                text=f"X: [{xlim[0]:.2f}, {xlim[1]:.2f}]  Y: [{ylim[0]:.2f}, {ylim[1]:.2f}]"
+            )
+
+        return num_points
 
     def _plot_3d(self, config):
         self.controller.load_all_files()
@@ -339,8 +455,39 @@ class AppGUI:
             config["point_size"]
         )
 
+    #--- toggle dimension ---
+
+    def toggle_dimension(self):
+        current = self.view_mode_var.get()
+
+        if current == "2D":
+            self.view_mode_var.set("3D")
+        else:
+            self.view_mode_var.set("2D")
+
+        self.plot_selected_data()
+
+    #--- reset view ---
+
     def reset_view(self):
-        self.controller.reset_view()
+        self.current_view_limits = None
+
+        if hasattr(self, "current_plot_config") and self.current_plot_config:
+            cfg = self.current_plot_config
+
+            self.plot_current_data(
+                cfg["plot_frame"],
+                cfg["x_col"],
+                cfg["y_col"],
+                cfg["val_col"],
+                cfg["step"],
+                cfg["hover_cols"],
+                cfg["point_size"],
+                cfg["filters"],
+                xlim=None,
+                ylim=None,
+                preserve_limits=False
+            )
 
     def _handle_new_file_in_2d(self, newest_file, current_files):
         self.known_files = current_files
@@ -402,6 +549,22 @@ class AppGUI:
     def on_file_selected(self, _event=None):
         self.load_selected_file()
         self.plot_selected_data()
+
+    #--- export current plot ---
+
+    def export_current_plot(self):
+        if not hasattr(self.controller, "current_figure") or self.controller.current_figure is None:
+            print("Kein Plot zum Exportieren vorhanden")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png")]
+        )
+        if not file_path:
+            return
+
+        self.controller.current_figure.savefig(file_path, dpi=300, bbox_inches="tight")
 
     def on_close(self):
         try:

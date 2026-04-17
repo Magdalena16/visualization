@@ -92,7 +92,6 @@ def draw_scatter_plot(
     ax.set_ylabel(y_col)
     ax.set_title(val_col)
     ax.set_aspect("equal", adjustable="box")
-    #ax.set_aspect("auto")
 
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
@@ -141,8 +140,11 @@ def draw_scatter_plot(
     # ========================================================
     pending_job = {"id": None}
 
-    def schedule_auto_refresh():
-        if controller is None or controller._is_replotting_view:
+    def trigger_replot():
+        if controller is None:
+            return
+
+        if getattr(controller, "_is_replotting_view", False):
             return
 
         new_xlim = ax.get_xlim()
@@ -150,6 +152,16 @@ def draw_scatter_plot(
 
         old_limits = getattr(controller, "current_view_limits", None)
         if old_limits == (new_xlim, new_ylim):
+            return
+
+        controller.current_view_limits = (new_xlim, new_ylim)
+        controller.replot_current_view(new_xlim, new_ylim)
+
+    def schedule_auto_refresh(delay=250):
+        if controller is None:
+            return
+
+        if getattr(controller, "_is_replotting_view", False):
             return
 
         widget = canvas.get_tk_widget()
@@ -160,26 +172,12 @@ def draw_scatter_plot(
             except Exception:
                 pass
 
-        pending_job["id"] = widget.after(
-            400,
-            lambda: controller.replot_current_view(new_xlim, new_ylim)
-        )
+        pending_job["id"] = widget.after(delay, trigger_replot)
 
     def on_mouse_release(event):
         if controller is None or event.inaxes != ax:
             return
-
-        new_xlim = ax.get_xlim()
-        new_ylim = ax.get_ylim()
-
-        old_limits = getattr(controller, "current_view_limits", None)
-        if old_limits == (new_xlim, new_ylim):
-            return
-
-        canvas.get_tk_widget().after(
-            100,
-            lambda: controller.replot_current_view(new_xlim, new_ylim)
-        )
+        schedule_auto_refresh(delay=350)
 
     def on_scroll(event):
         if event.inaxes != ax:
@@ -204,10 +202,11 @@ def draw_scatter_plot(
         ax.set_ylim([ydata - new_height * (1 - rely), ydata + new_height * rely])
 
         canvas.draw_idle()
-        schedule_auto_refresh()
+        schedule_auto_refresh(delay=450)
 
     canvas.mpl_connect("button_release_event", on_mouse_release)
     canvas.mpl_connect("scroll_event", on_scroll)
+
     return fig, ax, canvas
 
 # --- 3D Plot ---

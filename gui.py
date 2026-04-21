@@ -246,17 +246,108 @@ class AppGUI:
         self.auto_reload_cb.grid(row=0, column=4, padx=10, pady=5)
 
     def _create_filter_widgets(self):
-        tk.Label(self.filter_frame, text="Tag:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.tag_combo = ttk.Combobox(self.filter_frame, width=20, state="readonly")
-        self.tag_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.filter_rows = []
 
-        tk.Label(self.filter_frame, text="Outline:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.outline_combo = ttk.Combobox(self.filter_frame, width=20, state="readonly")
-        self.outline_combo.grid(row=1, column=1, padx=5, pady=5)
+        self.filter_frame = tk.LabelFrame(self.root, text="Filter")
+        self.filter_frame.pack(fill="x", padx=10, pady=5)
 
-        tk.Label(self.filter_frame, text="Bauteil:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.part_combo = ttk.Combobox(self.filter_frame, width=20, state="readonly")
-        self.part_combo.grid(row=2, column=1, padx=5, pady=5)
+        top_row = tk.Frame(self.filter_frame)
+        top_row.pack(fill="x", padx=5, pady=5)
+
+        tk.Button(
+            top_row,
+            text="Filter hinzufügen",
+            command=self.add_filter_row
+        ).pack(side="left")
+
+        tk.Button(
+            top_row,
+            text="Filter löschen",
+            command=self.clear_filters
+        ).pack(side="left", padx=5)
+
+        self.filters_container = tk.Frame(self.filter_frame)
+        self.filters_container.pack(fill="x", padx=5, pady=5)
+        self.add_filter_row()
+
+    def add_filter_row(self):
+        row_frame = tk.Frame(self.filters_container)
+        row_frame.pack(fill="x", pady=2)
+
+        column_var = tk.StringVar()
+        operator_var = tk.StringVar(value="==")
+        value_var = tk.StringVar()
+
+        tk.Label(row_frame, text="Spalte").pack(side="left", padx=(0, 5))
+
+        column_box = ttk.Combobox(
+            row_frame,
+            textvariable=column_var,
+            state="readonly",
+            width=25
+        )
+        column_box["values"] = list(self.controller.df.columns) if self.controller.df is not None else []
+        column_box.pack(side="left", padx=5)
+
+        tk.Label(row_frame, text="Operator").pack(side="left", padx=(10, 5))
+
+        operator_box = ttk.Combobox(
+            row_frame,
+            textvariable=operator_var,
+            state="readonly",
+            width=8,
+            values=["==", "!=", ">", "<", ">=", "<="]
+        )
+        operator_box.pack(side="left", padx=5)
+
+        tk.Label(row_frame, text="Wert").pack(side="left", padx=(10, 5))
+
+        value_entry = tk.Entry(row_frame, textvariable=value_var, width=20)
+        value_entry.pack(side="left", padx=5)
+
+        tk.Button(
+            row_frame,
+            text="X",
+            command=lambda: self.remove_filter_row(row_frame)
+        ).pack(side="left", padx=10)
+
+        self.filter_rows.append({
+            "frame": row_frame,
+            "column_var": column_var,
+            "operator_var": operator_var,
+            "value_var": value_var,
+            "column_box": column_box,
+        })
+
+    def remove_filter_row(self, row_frame):
+        for row in self.filter_rows:
+            if row["frame"] == row_frame:
+                row["frame"].destroy()
+                self.filter_rows.remove(row)
+                break
+
+    def get_active_filters(self):
+        filters = []
+
+        for row in self.filter_rows:
+            column = row["column_var"].get().strip()
+            operator = row["operator_var"].get().strip()
+            value = row["value_var"].get().strip()
+
+            if column and operator and value:
+                filters.append({
+                    "column": column,
+                    "operator": operator,
+                    "value": value
+                })
+
+        return filters
+
+    def update_filter_column_options(self):
+        columns = list(self.controller.df.columns) if self.controller.df is not None else []
+
+        for row in self.filter_rows:
+            row["column_box"]["values"] = columns
 
     def _bind_mousewheel(self, _event):
         self.hover_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
@@ -268,15 +359,15 @@ class AppGUI:
         self.hover_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _bind_events(self):
-        self.tag_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
-        self.outline_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
-        self.part_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
+        #self.tag_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
+        #self.outline_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
+        #self.part_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
         self.file_combo.bind("<<ComboboxSelected>>", self.on_file_selected)
 
     def _initialize(self):
-        self._set_combo_values(self.tag_combo, ["Alle"], "Alle")
-        self._set_combo_values(self.outline_combo, ["Alle"], "Alle")
-        self._set_combo_values(self.part_combo, ["Alle"], "Alle")
+        #self._set_combo_values(self.tag_combo, ["Alle"], "Alle")
+        #self._set_combo_values(self.outline_combo, ["Alle"], "Alle")
+        #self._set_combo_values(self.part_combo, ["Alle"], "Alle")
 
         self.known_files = set(self.fill_file_list())
 
@@ -318,7 +409,6 @@ class AppGUI:
     def _get_plot_config(self):
         step = self._get_int_entry(self.step_entry, 200)
 
-        #--- Auto-Sampling ---
         if self.controller.df is not None:
             total_rows = len(self.controller.df)
 
@@ -336,7 +426,7 @@ class AppGUI:
             "step": step,
             "point_size": self._get_float_entry(self.point_size_entry, 5),
             "hover_cols": self.get_selected_hover_columns(),
-            "filters": self.get_filters(),
+            "filters": self.get_active_filters(),
             "mode": self.view_mode_var.get(),
         }
 
@@ -391,6 +481,8 @@ class AppGUI:
         self.y_combo["values"] = columns
         self.value_combo["values"] = columns
 
+        self.update_filter_column_options()
+
         self._set_preferred_or_fallback(
             self.x_combo, columns, "Field Commanded X [mm]", 0
         )
@@ -412,9 +504,9 @@ class AppGUI:
         self.set_default_plot_columns(columns)
         self.create_hover_checkboxes(columns)
 
-        self.set_filter_values(self.tag_combo, "tag")
-        self.set_filter_values(self.outline_combo, "outline")
-        self.set_filter_values(self.part_combo, "bauteil")
+        #self.set_filter_values(self.tag_combo, "tag")
+        #self.set_filter_values(self.outline_combo, "outline")
+        #self.set_filter_values(self.part_combo, "bauteil")
         self._set_plot_controls_state(True)
 
         self.file_status_label.config(text=f"Datei: {filename}")
@@ -425,21 +517,19 @@ class AppGUI:
     def get_selected_hover_columns(self):
         return [col for col, var in self.hover_vars.items() if var.get()]
 
-    def get_filters(self):
-        return {
-            "tag": self.tag_combo.get(),
-            "outline": self.outline_combo.get(),
-            "bauteil": self.part_combo.get(),
-        }
+    # def get_filters(self):
+    #     return {
+    #         "tag": self.tag_combo.get(),
+    #         "outline": self.outline_combo.get(),
+    #         "bauteil": self.part_combo.get(),
+    #     }
 
     #--- filter reset ---
 
     def clear_filters(self):
-        self.tag_combo.set("Alle")
-        self.outline_combo.set("Alle")
-        self.part_combo.set("Alle")
-
-        self.plot_selected_data()
+        for row in self.filter_rows[:]:
+            row["frame"].destroy()
+        self.filter_rows.clear()
 
     #--- plot selected data ---
 

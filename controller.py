@@ -1,6 +1,6 @@
 ﻿import os
 import pandas as pd
-from csv_reader import get_csv_files, load_csv, get_csv_columns, load_data_fast
+from csv_reader import CSVReader
 from plotter import draw_scatter_plot
 import time
 
@@ -9,6 +9,7 @@ class AppController:
     # --- Initialisierung ---
     def __init__(self, data_folder="data"):
         self.data_folder = data_folder
+        self.reader = CSVReader()
 
         self.df = None
         self.layer_dfs = {}
@@ -35,20 +36,22 @@ class AppController:
 
     # --- Dateiverwaltung ---
     def get_file_list(self):
-        return get_csv_files(self.data_folder)
+        return self.reader.get_csv_files(self.data_folder)
 
     def load_file(self, filename):
         path = os.path.join(self.data_folder, filename)
 
         t0 = time.time()
+
         self.current_file = filename
         self.current_file_path = path
-        self.columns = get_csv_columns(path)
+        self.columns = self.reader.get_csv_columns(path)
         self.df = None
 
         self.color_limits = None
         self.filtered_df = None
         self.last_filters = None
+        self.loaded_cols = []
 
         print(f"[Timing] CSV header load: {time.time() - t0:.3f}s")
 
@@ -58,49 +61,120 @@ class AppController:
         for filename in self.get_file_list():
             path = os.path.join(self.data_folder, filename)
             try:
-                self.layer_dfs[filename] = load_csv(path)
+                self.layer_dfs[filename] = self.reader.load_csv(path)
             except Exception as e:
                 print(f"Fehler beim Laden von {filename}: {e}")
 
     def get_columns(self):
-        return getattr(self, "columns", [])#
+        return getattr(self, "columns", [])
 
-    def load_plot_data(self, x_col, y_col, val_col, hover_cols=None, filters=None):
+    def load_plot_data(self, x_col, y_col, val_col, hover_cols, filters):
         hover_cols = hover_cols or []
-        filters = filters or {}
+        filters = filters or []
 
-        needed_cols = list(dict.fromkeys(
-            [x_col, y_col, val_col] + hover_cols + list(filters.keys())
-        ))
-        needed_cols = [col for col in needed_cols if col in self.columns]
+        filter_cols = [
+            f["column"]
+            for f in filters
+            if isinstance(f, dict) and f.get("column")
+        ]
 
-        t0 = time.time()
-        self.df = load_csv(self.current_file_path, usecols=needed_cols)
-        print(f"[Timing] CSV plot load: {time.time() - t0:.3f}s")
+        needed_cols = []
+        for col in [x_col, y_col, val_col] + hover_cols + filter_cols:
+            if col and col not in needed_cols:
+                needed_cols.append(col)
 
-        numeric_cols = [x_col, y_col, val_col] + [col for col in hover_cols if col in self.df.columns]
+        if not needed_cols or not getattr(self, "current_file_path", None):
+            self.df = None
+            self.loaded_cols = []
+            return
 
-        for col in dict.fromkeys(numeric_cols):
-            self.df[col] = pd.to_numeric(self.df[col], errors="coerce")
+        self.df = self.reader.load_data_fast(self.current_file_path, usecols=needed_cols)
+        self.loaded_cols = needed_cols[:]
 
-        self.loaded_cols = needed_cols
         self.filtered_df = None
         self.last_filters = None
         self.color_limits = None
-        self.loaded_cols = needed_cols
 
     def _get_needed_cols(self, x_col, y_col, val_col, hover_cols, filters):
-        needed_cols = list(dict.fromkeys(
-            [x_col, y_col, val_col] + hover_cols + list(filters.keys())
-        ))
-        return [col for col in needed_cols if col in self.columns]
+        hover_cols = hover_cols or []
+        filters = filters or []
+
+        filter_cols = [
+            f["column"]
+            for f in filters
+            if isinstance(f, dict) and f.get("column")
+        ]
+
+        needed_cols = set()
+
+        for col in [x_col, y_col, val_col] + hover_cols + filter_cols:
+            if col:
+                needed_cols.add(col)
+
+        return needed_cols
 
     # --- Data Preparation Helpers ---
     def _apply_filters(self, df, filters):
-        for col, val in filters.items():
-            if col in df.columns and val and val != "Alle":
-                df = df[df[col].astype(str) == str(val)]
-        return df
+        if df is None or not filters:
+            return df
+
+        filtered_df = df.copy()
+
+        for f in filters:
+            if not isinstance(f, dict):
+                continue
+
+            column = f.get("column")
+            operator = f.get("operator")
+            raw_value = f.get("value")
+
+            if not column or not operator or column not in filtered_df.columns:
+                continue
+
+            series = filtered_df[column]
+
+            try:
+                typed_value = float(raw_value)
+                series_numeric = pd.to_numeric(series, errors="coerce")
+                is_numeric_filter = True
+            except (TypeError, ValueError):
+                typed_value = str(raw_value)
+                is_numeric_filter = False
+
+            try:
+                if operator == "==":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric == typed_value]
+                    else:
+                        filtered_df = filtered_df[series.astype(str) == typed_value]
+
+                elif operator == "!=":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric != typed_value]
+                    else:
+                        filtered_df = filtered_df[series.astype(str) != typed_value]
+
+                elif operator == ">":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric > typed_value]
+
+                elif operator == "<":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric < typed_value]
+
+                elif operator == ">=":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric >= typed_value]
+
+                elif operator == "<=":
+                    if is_numeric_filter:
+                        filtered_df = filtered_df[series_numeric <= typed_value]
+
+            except Exception as e:
+                print(f"Fehler beim Anwenden des Filters {f}: {e}")
+
+        return filtered_df
+
 
     def _prepare_dataframe_from_df(self, df, x_col, y_col, val_col, hover_cols):
         all_cols = list(dict.fromkeys([x_col, y_col, val_col] + hover_cols))
@@ -158,7 +232,7 @@ class AppController:
         preserve_limits=False
     ):
         hover_cols = hover_cols or []
-        filters = filters or {}
+        filters = filters or []
 
         t0 = time.time()
 

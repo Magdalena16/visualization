@@ -26,55 +26,135 @@ class AppGUI:
 
     def _create_widgets(self):
         self._create_main_frames()
-        self._create_toolbar()
-        self._create_statusbar()
-        self._create_status_label()
-        self._create_scrollable_hover_area()
         self._create_settings_widgets()
         self._create_option_widgets()
+        self._create_toolbar()
         self._create_filter_widgets()
+        self._create_scrollable_hover_area()
+        self._create_statusbar()
+        self._create_status_label()
+
+        for col in [1, 3, 5, 7]:
+            self.settings_frame.grid_columnconfigure(col, weight=1)
         
 
     def _create_main_frames(self):
-        top_frame = tk.Frame(self.root)
-        top_frame.pack(fill="x", padx=10, pady=8)
+        self.top_container = tk.Frame(self.root)
+        self.top_container.pack(fill="x", padx=10, pady=8)
 
-        self.settings_frame = tk.LabelFrame(top_frame, text="Plot-Einstellungen")
+        self.top_row = tk.Frame(self.top_container)
+        self.top_row.pack(fill="x")
+
+        self.settings_frame = tk.LabelFrame(self.top_row, text="Plot-Einstellungen")
         self.settings_frame.pack(fill="x", pady=5)
 
-        self.options_frame = tk.LabelFrame(top_frame, text="Optionen")
+        self.options_frame = tk.LabelFrame(self.top_container, text="Optionen")
         self.options_frame.pack(fill="x", pady=5)
 
-        bottom_frame = tk.Frame(self.root)
-        bottom_frame.pack(fill="x", padx=10, pady=5)
+        self.toolbar_frame = tk.Frame(self.top_container)
+        self.toolbar_frame.pack(fill="x", pady=(0, 5))
 
-        self.hover_frame = tk.LabelFrame(bottom_frame, text="Hover-Werte")
-        self.hover_frame.pack(side="left", fill="both", padx=5)
+        self.middle_container = tk.Frame(self.root)
+        self.middle_container.pack(fill="x", padx=10, pady=5)
 
-        self.filter_frame = tk.LabelFrame(bottom_frame, text="Filter")
-        self.filter_frame.pack(side="left", fill="both", padx=5)
+        self.hover_frame = tk.LabelFrame(self.middle_container, text="Hover-Werte")
+        self.hover_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        self.filter_frame = tk.LabelFrame(self.middle_container, text="Filter")
+        self.filter_frame.pack(side="left", fill="y", padx=(5, 0))
 
         self.plot_frame = tk.Frame(self.root, bd=1, relief="sunken")
         self.plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        #--- toolbar ---
-
+   
     def _create_toolbar(self):
-        toolbar = ttk.Frame(self.root)
-        toolbar.pack(fill="x", padx=10, pady=(5, 0))
+        self.toolbar_plot_button = tk.Button(
+            self.toolbar_frame,
+            text="Plotten",
+            command=self.plot_selected_data,
+            state="disabled"
+        )
+        self.toolbar_plot_button.pack(side="left", padx=2)
 
-        tk.Button(toolbar, text="Plotten", command=self.plot_selected_data).pack(side="left", padx=2)
-        tk.Button(toolbar, text="Reset View", command=self.reset_view).pack(side="left", padx=2)
-        tk.Button(toolbar, text="Filter löschen", command=self.clear_filters).pack(side="left", padx=2)
-        tk.Button(toolbar, text="2D/3D", command=self.toggle_dimension).pack(side="left", padx=2)
-        tk.Button(toolbar, text="Export PNG", command=self.export_current_plot).pack(side="left", padx=2)
+        self.toolbar_reset_button = tk.Button(
+            self.toolbar_frame,
+            text="Reset View",
+            command=self.reset_view,
+            state="disabled"
+        )
+        self.toolbar_reset_button.pack(side="left", padx=2)
+
+        self.toolbar_clear_filters_button = tk.Button(
+            self.toolbar_frame,
+            text="Filter löschen",
+            command=self.clear_filters,
+            state="disabled"
+        )
+        self.toolbar_clear_filters_button.pack(side="left", padx=2)
+
+        self.toolbar_toggle_button = tk.Button(
+            self.toolbar_frame,
+            text="2D/3D",
+            command=self.toggle_dimension,
+            state="disabled"
+        )
+        self.toolbar_toggle_button.pack(side="left", padx=2)
+
+        self.toolbar_export_button = tk.Button(
+            self.toolbar_frame,
+            text="Export PNG",
+            command=self.export_current_plot,
+            state="disabled"
+        )
+        self.toolbar_export_button.pack(side="left", padx=2)
 
         self.sampling_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(
-            toolbar,
+        self.toolbar_sampling_cb = tk.Checkbutton(
+            self.toolbar_frame,
             text="Sampling",
-            variable=self.sampling_var
-        ).pack(side="left", padx=10)
+            variable=self.sampling_var,
+            state="disabled"
+        )
+        self.toolbar_sampling_cb.pack(side="left", padx=10)
+
+    def _set_plot_controls_state(self, enabled):
+        state = "normal" if enabled else "disabled"
+
+        for name in [
+            "toolbar_plot_button",
+            "toolbar_reset_button",
+            "toolbar_clear_filters_button",
+            "toolbar_toggle_button",
+            "toolbar_export_button",
+            "toolbar_sampling_cb",
+        ]:
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.config(state=state)
+        
+            # def _set_plot_controls_state(self, enabled):
+            # state = "normal" if enabled else "disabled"
+
+            # self.toolbar_plot_button.config(state=state)
+            # self.toolbar_reset_button.config(state=state)
+            # self.toolbar_clear_filters_button.config(state=state)
+            # self.toolbar_toggle_button.config(state=state)
+            # self.toolbar_export_button.config(state=state)
+            # self.toolbar_sampling_cb.config(state=state)
+
+    # def _set_plot_controls_state(self, enabled: bool):
+    #     state = "normal" if enabled else "disabled"
+
+    #     widgets = [
+    #         getattr(self, "plot_button", None),
+    #         getattr(self, "reset_view_button", None),
+    #         getattr(self, "toolbar_plot_button", None),
+    #         getattr(self, "toolbar_reset_button", None),
+    #     ]
+
+    #     for widget in widgets:
+    #         if widget is not None:
+    #             widget.config(state=state)
 
     #--- statusbar ---
 
@@ -165,12 +245,6 @@ class AppGUI:
         )
         self.auto_reload_cb.grid(row=0, column=4, padx=10, pady=5)
 
-        self.plot_button = tk.Button(self.options_frame, text="Plotten", command=self.plot_selected_data)
-        self.plot_button.grid(row=0, column=6, padx=5, pady=5)
-
-        self.reset_button = tk.Button(self.options_frame, text="Ansicht zurücksetzen", command=self.reset_view)
-        self.reset_button.grid(row=0, column=7, padx=5, pady=5)
-
     def _create_filter_widgets(self):
         tk.Label(self.filter_frame, text="Tag:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.tag_combo = ttk.Combobox(self.filter_frame, width=20, state="readonly")
@@ -206,6 +280,11 @@ class AppGUI:
 
         self.known_files = set(self.fill_file_list())
 
+        # self._build_layout()
+        # self._create_widgets()
+        # self._create_toolbar()
+        # self._bind_events()
+        
         self.load_selected_file()
         self.plot_selected_data()
         self.check_for_new_files()
@@ -336,6 +415,7 @@ class AppGUI:
         self.set_filter_values(self.tag_combo, "tag")
         self.set_filter_values(self.outline_combo, "outline")
         self.set_filter_values(self.part_combo, "bauteil")
+        self._set_plot_controls_state(True)
 
         self.file_status_label.config(text=f"Datei: {filename}")
 

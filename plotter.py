@@ -76,7 +76,7 @@ def draw_scatter_plot(
     toolbar_frame, canvas_frame = _setup_plot_frames(plot_frame, controller)
 
     # --- Figure erstellen ---
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 8))
     fig.subplots_adjust(left=0.12, right=0.88, bottom=0.12, top=0.90)
 
     sc = ax.scatter(
@@ -91,7 +91,8 @@ def draw_scatter_plot(
     ax.set_xlabel(x_col)
     ax.set_ylabel(y_col)
     ax.set_title(val_col)
-    ax.set_aspect("equal", adjustable="box")
+    ax.set_box_aspect(1)
+    ax.set_aspect("equal", adjustable="datalim")
 
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
@@ -156,7 +157,7 @@ def draw_scatter_plot(
 
         controller.current_view_limits = (new_xlim, new_ylim)
         controller.replot_current_view(new_xlim, new_ylim)
-
+    
     def schedule_auto_refresh(delay=250):
         if controller is None:
             return

@@ -13,7 +13,7 @@ class AppGUI:
 
         self.root = tk.Tk()
         self.root.title("CSV Visualisierung")
-        self.root.geometry("1200x800")
+        self.root.state("zoomed")
 
         self.hover_vars = {}
         self.known_files = set()
@@ -36,9 +36,10 @@ class AppGUI:
 
         for col in [1, 3, 5, 7]:
             self.settings_frame.grid_columnconfigure(col, weight=1)
-        
 
     def _create_main_frames(self):
+        #self.root.state("zoomed")
+
         self.top_container = tk.Frame(self.root)
         self.top_container.pack(fill="x", padx=10, pady=8)
 
@@ -63,10 +64,12 @@ class AppGUI:
         self.filter_frame = tk.LabelFrame(self.middle_container, text="Filter")
         self.filter_frame.pack(side="left", fill="y", padx=(5, 0))
 
+        self.bottom_container = tk.Frame(self.root)
+        self.bottom_container.pack(fill="x", side="bottom", padx=10, pady=(0, 5))
+
         self.plot_frame = tk.Frame(self.root, bd=1, relief="sunken")
         self.plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-   
     def _create_toolbar(self):
         self.toolbar_plot_button = tk.Button(
             self.toolbar_frame,
@@ -142,24 +145,8 @@ class AppGUI:
             # self.toolbar_export_button.config(state=state)
             # self.toolbar_sampling_cb.config(state=state)
 
-    # def _set_plot_controls_state(self, enabled: bool):
-    #     state = "normal" if enabled else "disabled"
-
-    #     widgets = [
-    #         getattr(self, "plot_button", None),
-    #         getattr(self, "reset_view_button", None),
-    #         getattr(self, "toolbar_plot_button", None),
-    #         getattr(self, "toolbar_reset_button", None),
-    #     ]
-
-    #     for widget in widgets:
-    #         if widget is not None:
-    #             widget.config(state=state)
-
-    #--- statusbar ---
-
     def _create_statusbar(self):
-        statusbar = ttk.Frame(self.root)
+        statusbar = ttk.Frame(self.bottom_container)
         statusbar.pack(fill="x", side="bottom", padx=10, pady=3)
 
         self.file_status_label = ttk.Label(statusbar, text="Keine Datei geladen")
@@ -248,7 +235,7 @@ class AppGUI:
     def _create_filter_widgets(self):
         self.filter_rows = []
 
-        self.filter_frame = tk.LabelFrame(self.root, text="Filter")
+        self.filter_frame = tk.LabelFrame(self.bottom_container, text="Filter")
         self.filter_frame.pack(fill="x", padx=10, pady=5)
 
         top_row = tk.Frame(self.filter_frame)
@@ -286,7 +273,7 @@ class AppGUI:
             state="readonly",
             width=25
         )
-        column_box["values"] = list(self.controller.df.columns) if self.controller.df is not None else []
+        column_box["values"] = self.controller.get_columns() if self.controller.df is not None else []
         column_box.pack(side="left", padx=5)
 
         tk.Label(row_frame, text="Operator").pack(side="left", padx=(10, 5))
@@ -544,7 +531,6 @@ class AppGUI:
 
         config = self._get_plot_config()
 
-        # Sampling Toggle berücksichtigen
         if hasattr(self, "sampling_var") and not self.sampling_var.get():
             config["step"] = 1
 
@@ -553,43 +539,61 @@ class AppGUI:
             self.status_label.config(text="")
             return
 
+        # aktuellen Ausschnitt merken
+        xlim = None
+        ylim = None
+        preserve_limits = False
+
+        if getattr(self.controller, "current_view_limits", None) is not None:
+            xlim, ylim = self.controller.current_view_limits
+            preserve_limits = True
+
         num_points = None
 
         if config["mode"] == "2D":
-            num_points = self._plot_2d(config)
+            num_points = self.controller.plot_current_data(
+                self.plot_frame,
+                config["x_col"],
+                config["y_col"],
+                config["val_col"],
+                config["step"],
+                config["hover_cols"],
+                config["point_size"],
+                config["filters"],
+                xlim=xlim,
+                ylim=ylim,
+                preserve_limits=preserve_limits
+            )
         else:
             self._plot_3d(config)
 
-        #--- Plotzeit berechnen ---
         end_time = time.perf_counter()
         duration = end_time - start_time
 
-        #--- Statusbar updaten ---
         if hasattr(self, "plot_time_label"):
             self.plot_time_label.config(text=f"Plotzeit: {duration:.2f}s")
-        
+
         if num_points is not None and hasattr(self, "view_status_label"):
-            current_text = self.view_status_label.cget("text")
-            self.view_status_label.config(text=f"Punkte: {num_points}    {current_text}")
+            if getattr(self.controller, "current_view_limits", None) is not None:
+                xlim, ylim = self.controller.current_view_limits
+                self.view_status_label.config(
+                    text=f"Punkte: {num_points}    X: [{xlim[0]:.2f}, {xlim[1]:.2f}]  Y: [{ylim[0]:.2f}, {ylim[1]:.2f}]"
+                )
+            else:
+                self.view_status_label.config(text=f"Punkte: {num_points}")
 
         self.status_label.config(text="")
 
     def _plot_2d(self, config):
-        # Anzahl Punkte vorberechnen (für Anzeige)
         df = self.controller.df
+        num_points = 0
 
         if df is not None:
-            filtered_df = df.copy()
+            filtered_df = self.controller._apply_filters(df, config["filters"])
 
-            filters = config["filters"]
-            for col, val in filters.items():
-                if col in filtered_df.columns and val and val != "Alle":
-                    filtered_df = filtered_df[filtered_df[col].astype(str) == str(val)]
-
-            step = max(1, int(config["step"]))
-            num_points = len(filtered_df.iloc[::step])
-        else:
-            num_points = 0
+            if filtered_df is not None and not filtered_df.empty:
+                step = max(1, int(config["step"]))
+                num_points = len(filtered_df.iloc[::step])
 
         self.controller.plot_current_data(
             self.plot_frame,
@@ -603,8 +607,7 @@ class AppGUI:
         )
 
         if hasattr(self, "plot_time_label"):
-            current_text = self.plot_time_label.cget("text")
-            self.plot_time_label.config(text=f"{current_text} | Punkte: {num_points}")
+            self.plot_time_label.config(text=f"Punkte: {num_points}")
 
         if hasattr(self.controller, "current_view_limits") and self.controller.current_view_limits is not None:
             xlim, ylim = self.controller.current_view_limits

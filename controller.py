@@ -193,19 +193,26 @@ class AppController:
         return df
 
     def _apply_sampling(self, df, x_col, y_col, xlim, ylim, step):
-        if xlim and ylim:
-            df = df[
+        if df is None or df.empty:
+            return None
+
+        # Bei Zoom immer erst auf sichtbaren Bereich begrenzen
+        if xlim is not None and ylim is not None:
+            visible_df = df[
                 (df[x_col] >= xlim[0]) & (df[x_col] <= xlim[1]) &
                 (df[y_col] >= ylim[0]) & (df[y_col] <= ylim[1])
             ]
 
-            if df.empty:
+            if visible_df.empty:
                 print("Keine sichtbaren Daten")
                 return None
 
             target_points = 5000
-            dynamic_step = max(1, len(df) // target_points)
-            return df.iloc[::dynamic_step]
+            dynamic_step = max(1, len(visible_df) // target_points)
+            return visible_df.iloc[::dynamic_step]
+
+        # Ohne Zoom normales Sampling
+        step = max(1, int(step)) if step else 1
         return df.iloc[::step]
 
     def _get_color_limits(self, val_col):
@@ -249,7 +256,6 @@ class AppController:
 
         needed_cols = self._get_needed_cols(x_col, y_col, val_col, hover_cols, filters)
 
-        # Nur neu laden, wenn wirklich andere Spalten gebraucht werden
         if self.df is None or self.loaded_cols != needed_cols:
             self.load_plot_data(x_col, y_col, val_col, hover_cols, filters)
 
@@ -290,9 +296,6 @@ class AppController:
 
         vmin, vmax = self._get_color_limits(val_col)
 
-        if preserve_limits:
-            self.current_view_limits = (xlim, ylim)
-
         fig, ax, canvas = draw_scatter_plot(
             plot_frame,
             x,
@@ -310,6 +313,11 @@ class AppController:
             vmax=vmax
         )
 
+        if preserve_limits and xlim is not None and ylim is not None:
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+            self.current_view_limits = (xlim, ylim)
+
         self.current_figure = fig
         self.current_ax = ax
         self.current_canvas = canvas
@@ -322,15 +330,133 @@ class AppController:
 
         self.last_ax = ax
 
+        return len(df)
+
     def plot_visible_data(self, xlim, ylim):
-        if self.df is None or not self.current_plot_config:
-            return
+            if self.df is None or not self.current_plot_config:
+                return
 
-        if self.is_updating_plot:
-            return
+            if self.is_updating_plot:
+                return
 
-        self.is_updating_plot = True
-        try:
+            self.is_updating_plot = True
+            try:
+                cfg = self.current_plot_config
+
+                self.plot_current_data(
+                    cfg["plot_frame"],
+                    cfg["x_col"],
+                    cfg["y_col"],
+                    cfg["val_col"],
+                    cfg["step"],
+                    cfg["hover_cols"],
+                    cfg["point_size"],
+                    cfg["filters"],
+                    xlim=xlim,
+                    ylim=ylim,
+                    preserve_limits=True
+                )
+            finally:
+                self.is_updating_plot = False
+
+    def connect_axes_events(self, ax):
+            def on_release(_event):
+                if self.is_updating_plot:
+                    return
+
+                try:
+                    xlim = ax.get_xlim()
+                    ylim = ax.get_ylim()
+                    self.current_view_limits = (xlim, ylim)
+                    self.plot_visible_data(xlim, ylim)
+                except Exception:
+                    pass
+
+            ax.figure.canvas.mpl_connect("button_release_event", on_release)
+
+        # --- Replot / Zoom ---
+
+        #--- replot current view ---
+
+    def replot_current_view(self, xlim, ylim):
+            if self.df is None or not self.current_plot_config:
+                return
+
+            if self._is_replotting_view:
+                return
+
+            cfg = self.current_plot_config
+            filters = cfg["filters"]
+
+            if filters != self.last_filters or self.filtered_df is None:
+                self.filtered_df = self._apply_filters(self.df, filters)
+                self.last_filters = filters.copy()
+
+            df_base = self.filtered_df
+
+            df = self._prepare_dataframe_from_df(
+                df_base,
+                cfg["x_col"],
+                cfg["y_col"],
+                cfg["val_col"],
+                cfg["hover_cols"]
+            )
+            if df is None or df.empty:
+                return
+
+            #--- auf sichtbaren Bereich begrenzen ---
+            df = df[
+                (df[cfg["x_col"]] >= xlim[0]) & (df[cfg["x_col"]] <= xlim[1]) &
+                (df[cfg["y_col"]] >= ylim[0]) & (df[cfg["y_col"]] <= ylim[1])
+            ]
+            if df.empty:
+                return
+
+            #--- nur bei wirklich vielen sichtbaren Punkten samplen ---
+            visible_points = len(df)
+
+            max_visible_points = 10000
+            if visible_points > max_visible_points:
+                step = max(1, int(visible_points / max_visible_points))
+                df = df.iloc[::step]
+
+            x = df[cfg["x_col"]]
+            y = df[cfg["y_col"]]
+            values = df[cfg["val_col"]]
+            hover_data = df[cfg["hover_cols"]] if cfg["hover_cols"] else None
+
+            vmin, vmax = self.color_limits
+
+            self._is_replotting_view = True
+            try:
+                fig, ax, canvas = draw_scatter_plot(
+                    cfg["plot_frame"],
+                    x,
+                    y,
+                    values,
+                    cfg["x_col"],
+                    cfg["y_col"],
+                    cfg["val_col"],
+                    hover_data=hover_data,
+                    point_size=cfg["point_size"],
+                    controller=self,
+                    xlim=xlim,
+                    ylim=ylim,
+                    vmin=vmin,
+                    vmax=vmax
+                )
+                self.last_ax = ax
+                self.current_view_limits = (xlim, ylim)
+            finally:
+                self._is_replotting_view = False
+
+            return len(df), xlim, ylim
+
+    def reset_view(self):
+            if not self.current_plot_config or self.df is None:
+                return
+
+            self.current_view_limits = None
             cfg = self.current_plot_config
 
             self.plot_current_data(
@@ -341,141 +467,25 @@ class AppController:
                 cfg["step"],
                 cfg["hover_cols"],
                 cfg["point_size"],
-                cfg["filters"],
-                xlim=xlim,
-                ylim=ylim,
-                preserve_limits=True
+                cfg["filters"]
             )
-        finally:
-            self.is_updating_plot = False
 
-    def connect_axes_events(self, ax):
-        def on_release(_event):
-            if self.is_updating_plot:
+        # --- 3D Plot ---
+    def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
+            from plotter import draw_3d_layers
+
+            if not self.layer_dfs:
+                print("Keine Layer geladen")
                 return
 
-            try:
-                xlim = ax.get_xlim()
-                ylim = ax.get_ylim()
-                self.current_view_limits = (xlim, ylim)
-                self.plot_visible_data(xlim, ylim)
-            except Exception:
-                pass
-
-        ax.figure.canvas.mpl_connect("button_release_event", on_release)
-
-    # --- Replot / Zoom ---
-
-    #--- replot current view ---
-
-    def replot_current_view(self, xlim, ylim):
-        if self.df is None or not self.current_plot_config:
-            return
-
-        if self._is_replotting_view:
-            return
-
-        cfg = self.current_plot_config
-        filters = cfg["filters"]
-
-        if filters != self.last_filters or self.filtered_df is None:
-            self.filtered_df = self._apply_filters(self.df, filters)
-            self.last_filters = filters.copy()
-
-        df_base = self.filtered_df
-
-        df = self._prepare_dataframe_from_df(
-            df_base,
-            cfg["x_col"],
-            cfg["y_col"],
-            cfg["val_col"],
-            cfg["hover_cols"]
-        )
-        if df is None or df.empty:
-            return
-
-        #--- auf sichtbaren Bereich begrenzen ---
-        df = df[
-            (df[cfg["x_col"]] >= xlim[0]) & (df[cfg["x_col"]] <= xlim[1]) &
-            (df[cfg["y_col"]] >= ylim[0]) & (df[cfg["y_col"]] <= ylim[1])
-        ]
-        if df.empty:
-            return
-
-        #--- nur bei wirklich vielen sichtbaren Punkten samplen ---
-        visible_points = len(df)
-
-        max_visible_points = 10000
-        if visible_points > max_visible_points:
-            step = max(1, int(visible_points / max_visible_points))
-            df = df.iloc[::step]
-
-        x = df[cfg["x_col"]]
-        y = df[cfg["y_col"]]
-        values = df[cfg["val_col"]]
-        hover_data = df[cfg["hover_cols"]] if cfg["hover_cols"] else None
-
-        vmin, vmax = self.color_limits
-
-        self._is_replotting_view = True
-        try:
-            fig, ax, canvas = draw_scatter_plot(
-                cfg["plot_frame"],
-                x,
-                y,
-                values,
-                cfg["x_col"],
-                cfg["y_col"],
-                cfg["val_col"],
-                hover_data=hover_data,
-                point_size=cfg["point_size"],
-                controller=self,
-                xlim=xlim,
-                ylim=ylim,
-                vmin=vmin,
-                vmax=vmax
+            draw_3d_layers(
+                plot_frame,
+                self.layer_dfs,
+                x_col,
+                y_col,
+                val_col,
+                step,
+                point_size,
+                controller=self
             )
-            self.last_ax = ax
-            self.current_view_limits = (xlim, ylim)
-        finally:
-            self._is_replotting_view = False
-
-        return len(df), xlim, ylim
-
-    def reset_view(self):
-        if not self.current_plot_config or self.df is None:
-            return
-
-        self.current_view_limits = None
-        cfg = self.current_plot_config
-
-        self.plot_current_data(
-            cfg["plot_frame"],
-            cfg["x_col"],
-            cfg["y_col"],
-            cfg["val_col"],
-            cfg["step"],
-            cfg["hover_cols"],
-            cfg["point_size"],
-            cfg["filters"]
-        )
-
-    # --- 3D Plot ---
-    def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
-        from plotter import draw_3d_layers
-
-        if not self.layer_dfs:
-            print("Keine Layer geladen")
-            return
-
-        draw_3d_layers(
-            plot_frame,
-            self.layer_dfs,
-            x_col,
-            y_col,
-            val_col,
-            step,
-            point_size,
-            controller=self
-        )
 

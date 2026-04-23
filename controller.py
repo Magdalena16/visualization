@@ -196,7 +196,7 @@ class AppController:
         if df is None or df.empty:
             return None
 
-        # Bei Zoom immer erst auf sichtbaren Bereich begrenzen
+        # WICHTIG: Nur für Sampling beschneiden, NICHT den Bereich ändern
         if xlim is not None and ylim is not None:
             visible_df = df[
                 (df[x_col] >= xlim[0]) & (df[x_col] <= xlim[1]) &
@@ -204,14 +204,17 @@ class AppController:
             ]
 
             if visible_df.empty:
-                print("Keine sichtbaren Daten")
                 return None
 
             target_points = 5000
             dynamic_step = max(1, len(visible_df) // target_points)
-            return visible_df.iloc[::dynamic_step]
 
-        # Ohne Zoom normales Sampling
+            # Sampling NUR auf sichtbaren Bereich anwenden
+            sampled = visible_df.iloc[::dynamic_step]
+
+            # Aber ursprünglichen df zurückgeben für Grenzen
+            return sampled
+
         step = max(1, int(step)) if step else 1
         return df.iloc[::step]
 
@@ -307,8 +310,8 @@ class AppController:
             hover_data=hover_data,
             point_size=point_size,
             controller=self,
-            xlim=xlim if preserve_limits else None,
-            ylim=ylim if preserve_limits else None,
+            xlim=xlim,
+            ylim=ylim,
             vmin=vmin,
             vmax=vmax
         )
@@ -374,7 +377,7 @@ class AppController:
 
             ax.figure.canvas.mpl_connect("button_release_event", on_release)
 
-        # --- Replot / Zoom ---
+    # --- Replot / Zoom ---
 
         #--- replot current view ---
 
@@ -453,24 +456,43 @@ class AppController:
             return len(df), xlim, ylim
 
     def reset_view(self):
-            if not self.current_plot_config or self.df is None:
-                return
+        if not self.current_plot_config or self.df is None:
+            return
 
-            self.current_view_limits = None
-            cfg = self.current_plot_config
+        self.current_view_limits = None
+        cfg = self.current_plot_config
 
-            self.plot_current_data(
-                cfg["plot_frame"],
-                cfg["x_col"],
-                cfg["y_col"],
-                cfg["val_col"],
-                cfg["step"],
-                cfg["hover_cols"],
-                cfg["point_size"],
-                cfg["filters"]
-            )
+        # ungefilterte Datenbasis für volle Grenzen
+        df_base = self._apply_filters(self.df, cfg["filters"])
 
-        # --- 3D Plot ---
+        df_full = self._prepare_dataframe_from_df(
+            df_base,
+            cfg["x_col"],
+            cfg["y_col"],
+            cfg["val_col"],
+            cfg["hover_cols"]
+        )
+        if df_full is None or df_full.empty:
+            return
+
+        xlim = (df_full[cfg["x_col"]].min(), df_full[cfg["x_col"]].max())
+        ylim = (df_full[cfg["y_col"]].min(), df_full[cfg["y_col"]].max())
+
+        self.plot_current_data(
+            cfg["plot_frame"],
+            cfg["x_col"],
+            cfg["y_col"],
+            cfg["val_col"],
+            cfg["step"],
+            cfg["hover_cols"],
+            cfg["point_size"],
+            cfg["filters"],
+            xlim=xlim,
+            ylim=ylim,
+            preserve_limits=True
+        )
+
+    # --- 3D Plot ---
     def plot_all_layers_3d(self, plot_frame, x_col, y_col, val_col, step, point_size=5):
             from plotter import draw_3d_layers
 

@@ -82,7 +82,7 @@ class AppGUI:
         self.toolbar_reset_button = tk.Button(
             self.toolbar_frame,
             text="Reset View",
-            command=self.reset_view,
+            command=self.controller.reset_view,
             state="disabled"
         )
         self.toolbar_reset_button.pack(side="left", padx=2)
@@ -331,7 +331,7 @@ class AppGUI:
         return filters
 
     def update_filter_column_options(self):
-        columns = list(self.controller.df.columns) if self.controller.df is not None else []
+        columns = self.controller.get_columns()
 
         for row in self.filter_rows:
             row["column_box"]["values"] = columns
@@ -504,19 +504,13 @@ class AppGUI:
     def get_selected_hover_columns(self):
         return [col for col, var in self.hover_vars.items() if var.get()]
 
-    # def get_filters(self):
-    #     return {
-    #         "tag": self.tag_combo.get(),
-    #         "outline": self.outline_combo.get(),
-    #         "bauteil": self.part_combo.get(),
-    #     }
-
     #--- filter reset ---
 
     def clear_filters(self):
         for row in self.filter_rows[:]:
             row["frame"].destroy()
         self.filter_rows.clear()
+        self.add_filter_row()
 
     #--- plot selected data ---
 
@@ -544,7 +538,11 @@ class AppGUI:
         ylim = None
         preserve_limits = False
 
-        if getattr(self.controller, "current_view_limits", None) is not None:
+        if getattr(self.controller, "current_ax", None) is not None:
+            xlim = self.controller.current_ax.get_xlim()
+            ylim = self.controller.current_ax.get_ylim()
+            preserve_limits = True
+        elif getattr(self.controller, "current_view_limits", None) is not None:
             xlim, ylim = self.controller.current_view_limits
             preserve_limits = True
 

@@ -1,13 +1,13 @@
-﻿import os
-import tkinter as tk
+﻿import tkinter as tk
+
 import matplotlib.pyplot as plt
 import mplcursors
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import time
 import pandas as pd
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-# --- Toolbar ---
+# --- toolbar ---
+
 class CustomToolbar(NavigationToolbar2Tk):
     def __init__(self, canvas, window, controller=None):
         self.controller = controller
@@ -19,14 +19,25 @@ class CustomToolbar(NavigationToolbar2Tk):
             self.controller.reset_view()
 
 
-# --- Utilities ---
+# --- frame helpers ---
+
 def clear_plot_frame(plot_frame):
     for widget in plot_frame.winfo_children():
         widget.destroy()
 
 
+def _reset_controller_plot_refs(controller):
+    if controller is None:
+        return
+
+    controller.plot_canvas = None
+    controller.plot_toolbar = None
+    controller.plot_canvas_widget = None
+    controller.plot_toolbar_frame = None
+    controller.plot_canvas_frame = None
+
+
 def _setup_plot_frames(plot_frame, controller):
-    """Erstellt Toolbar- und Canvas-Frames einmalig"""
     if controller is not None and controller.plot_toolbar_frame is None:
         clear_plot_frame(plot_frame)
 
@@ -36,115 +47,58 @@ def _setup_plot_frames(plot_frame, controller):
         controller.plot_canvas_frame = tk.Frame(plot_frame)
         controller.plot_canvas_frame.pack(fill="both", expand=True)
 
-    toolbar_frame = (
-        controller.plot_toolbar_frame if controller else tk.Frame(plot_frame)
-    )
-    canvas_frame = (
-        controller.plot_canvas_frame if controller else tk.Frame(plot_frame)
-    )
+    if controller is not None:
+        return controller.plot_toolbar_frame, controller.plot_canvas_frame
 
-    if controller is None:
-        toolbar_frame.pack(fill="x")
-        canvas_frame.pack(fill="both", expand=True)
+    toolbar_frame = tk.Frame(plot_frame)
+    toolbar_frame.pack(fill="x")
+
+    canvas_frame = tk.Frame(plot_frame)
+    canvas_frame.pack(fill="both", expand=True)
 
     return toolbar_frame, canvas_frame
 
 
-# --- 2D Plot ---
-def draw_scatter_plot(
-    plot_frame,
-    x,
-    y,
-    values,
-    x_col,
-    y_col,
-    val_col,
-    hover_data=None,
-    point_size=5,
-    controller=None,
-    xlim=None,
-    ylim=None,
-    vmin=None,
-    vmax=None
-):
-    if controller is not None and controller.plot_canvas is not None:
-        try:
-            plt.close(controller.plot_canvas.figure)
-        except Exception:
-            pass
-
-    toolbar_frame, canvas_frame = _setup_plot_frames(plot_frame, controller)
-
-    # --- Figure erstellen ---
-    fig, ax = plt.subplots(figsize=(8, 8))
-    fig.subplots_adjust(left=0.12, right=0.88, bottom=0.12, top=0.90)
-
-    sc = ax.scatter(
-        x, y,
-        c=values,
-        s=point_size,
-        vmin=vmin,
-        vmax=vmax,
-        cmap="turbo"
-    )
-
-    ax.set_xlabel(x_col)
-    ax.set_ylabel(y_col)
-    ax.set_title(val_col)
-    ax.set_box_aspect(1)
-    ax.set_aspect("equal", adjustable="datalim")
-
-    if xlim is not None and ylim is not None:
-        ax.set_xlim(xlim)
-        ax.set_ylim(ylim)
-
-    cbar_ax = fig.add_axes([0.88, 0.12, 0.03, 0.80])
-    fig.colorbar(sc, cax=cbar_ax)
-
-    # --- Frames leeren ---
-    for widget in canvas_frame.winfo_children():
+def _clear_frame_children(frame):
+    for widget in frame.winfo_children():
         widget.destroy()
 
-    for widget in toolbar_frame.winfo_children():
-        widget.destroy()
 
-    # --- Canvas ---
-    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack(fill="both", expand=True)
+def _store_plot_refs(controller, canvas, toolbar):
+    if controller is None:
+        return
 
-    # --- Toolbar ---
-    toolbar = CustomToolbar(canvas, toolbar_frame, controller=controller)
-    toolbar.update()
+    controller.plot_canvas = canvas
+    controller.plot_toolbar = toolbar
+    controller.plot_canvas_widget = canvas.get_tk_widget()
 
-    if controller is not None:
-        controller.plot_canvas = canvas
-        controller.plot_toolbar = toolbar
-        controller.plot_canvas_widget = canvas.get_tk_widget()
 
-    # ========================================================
-    # --- Hover ---
-    # ========================================================
-    if hover_data is not None:
-        cursor = mplcursors.cursor(sc, hover=True)
+# --- hover ---
 
-        @cursor.connect("add")
-        def on_add(sel):
-            i = sel.index
-            lines = [f"{col}: {hover_data.iloc[i][col]}" for col in hover_data.columns]
-            sel.annotation.set_text("\n".join(lines))
+def _attach_hover(scatter, hover_data):
+    if hover_data is None:
+        return
 
-        fig._cursor = cursor
+    cursor = mplcursors.cursor(scatter, hover=True)
 
-    # ========================================================
-    # --- Zoom / Replot ---
-    # ========================================================
+    @cursor.connect("add")
+    def on_add(sel):
+        i = sel.index
+        lines = [f"{col}: {hover_data.iloc[i][col]}" for col in hover_data.columns]
+        sel.annotation.set_text("\n".join(lines))
+
+    return cursor
+
+
+# --- zoom / replot ---
+
+def _attach_auto_replot(canvas, ax, controller):
+    if controller is None:
+        return
+
     pending_job = {"id": None}
 
     def trigger_replot():
-        if controller is None:
-            return
-
         if getattr(controller, "_is_replotting_view", False):
             return
 
@@ -157,11 +111,8 @@ def draw_scatter_plot(
 
         controller.current_view_limits = (new_xlim, new_ylim)
         controller.replot_current_view(new_xlim, new_ylim)
-    
-    def schedule_auto_refresh(delay=250):
-        if controller is None:
-            return
 
+    def schedule_auto_refresh(delay=250):
         if getattr(controller, "_is_replotting_view", False):
             return
 
@@ -176,7 +127,7 @@ def draw_scatter_plot(
         pending_job["id"] = widget.after(delay, trigger_replot)
 
     def on_mouse_release(event):
-        if controller is None or event.inaxes != ax:
+        if event.inaxes != ax:
             return
         schedule_auto_refresh(delay=350)
 
@@ -208,9 +159,82 @@ def draw_scatter_plot(
     canvas.mpl_connect("button_release_event", on_mouse_release)
     canvas.mpl_connect("scroll_event", on_scroll)
 
+
+# --- 2d plot ---
+
+def draw_scatter_plot(
+    plot_frame,
+    x,
+    y,
+    values,
+    x_col,
+    y_col,
+    val_col,
+    hover_data=None,
+    point_size=5,
+    controller=None,
+    xlim=None,
+    ylim=None,
+    vmin=None,
+    vmax=None
+):
+    if controller is not None and controller.plot_canvas is not None:
+        try:
+            plt.close(controller.plot_canvas.figure)
+        except Exception:
+            pass
+
+    toolbar_frame, canvas_frame = _setup_plot_frames(plot_frame, controller)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    fig.subplots_adjust(left=0.12, right=0.88, bottom=0.12, top=0.90)
+
+    scatter = ax.scatter(
+        x,
+        y,
+        c=values,
+        s=point_size,
+        vmin=vmin,
+        vmax=vmax,
+        cmap="turbo"
+    )
+
+    ax.set_xlabel(x_col)
+    ax.set_ylabel(y_col)
+    ax.set_title(val_col)
+    ax.set_box_aspect(1)
+    ax.set_aspect("equal", adjustable="datalim")
+
+    if xlim is not None and ylim is not None:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+
+    cbar_ax = fig.add_axes([0.88, 0.12, 0.03, 0.80])
+    fig.colorbar(scatter, cax=cbar_ax)
+
+    _clear_frame_children(canvas_frame)
+    _clear_frame_children(toolbar_frame)
+
+    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    toolbar = CustomToolbar(canvas, toolbar_frame, controller=controller)
+    toolbar.update()
+
+    _store_plot_refs(controller, canvas, toolbar)
+
+    cursor = _attach_hover(scatter, hover_data)
+    if cursor is not None:
+        fig._cursor = cursor
+
+    _attach_auto_replot(canvas, ax, controller)
+
     return fig, ax, canvas
 
-# --- 3D Plot ---
+
+# --- 3d plot ---
+
 def draw_3d_layers(
     plot_frame,
     layer_dfs,
@@ -223,13 +247,7 @@ def draw_3d_layers(
 ):
     clear_plot_frame(plot_frame)
     plt.close("all")
-
-    if controller is not None:
-        controller.plot_canvas = None
-        controller.plot_toolbar = None
-        controller.plot_canvas_widget = None
-        controller.plot_toolbar_frame = None
-        controller.plot_canvas_frame = None
+    _reset_controller_plot_refs(controller)
 
     toolbar_frame = tk.Frame(plot_frame)
     toolbar_frame.pack(fill="x")
@@ -245,6 +263,7 @@ def draw_3d_layers(
     z_labels = []
 
     layer_spacing = 1.0
+    step = max(1, int(step)) if step else 1
 
     for layer_idx, (filename, df) in enumerate(sorted(layer_dfs.items())):
         needed = [x_col, y_col, val_col]
@@ -290,3 +309,4 @@ def draw_3d_layers(
     toolbar = CustomToolbar(canvas, toolbar_frame, controller=None)
     toolbar.update()
 
+    _store_plot_refs(controller, canvas, toolbar)

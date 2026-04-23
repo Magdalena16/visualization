@@ -1,7 +1,7 @@
 ﻿import os
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
 import time
+import tkinter as tk
+from tkinter import filedialog, ttk
 
 from controller import AppController
 
@@ -17,6 +17,7 @@ class AppGUI:
 
         self.hover_vars = {}
         self.known_files = set()
+        self.filter_rows = []
 
         self._create_widgets()
         self._bind_events()
@@ -24,146 +25,151 @@ class AppGUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    # --- setup ---
+
     def _create_widgets(self):
         self._create_main_frames()
-        self._create_settings_widgets()
+        self._create_top_controls()
         self._create_option_widgets()
-        self._create_toolbar()
         self._create_filter_widgets()
         self._create_scrollable_hover_area()
         self._create_statusbar()
         self._create_status_label()
 
-        for col in [1, 3, 5, 7]:
-            self.settings_frame.grid_columnconfigure(col, weight=1)
-
     def _create_main_frames(self):
-        #self.root.state("zoomed")
-
         self.top_container = tk.Frame(self.root)
         self.top_container.pack(fill="x", padx=10, pady=8)
 
-        self.top_row = tk.Frame(self.top_container)
-        self.top_row.pack(fill="x")
-
-        self.settings_frame = tk.LabelFrame(self.top_row, text="Plot-Einstellungen")
-        self.settings_frame.pack(fill="x", pady=5)
+        self.top_controls_frame = tk.LabelFrame(self.top_container, text="Plot")
+        self.top_controls_frame.pack(fill="x", pady=(0, 5))
 
         self.options_frame = tk.LabelFrame(self.top_container, text="Optionen")
-        self.options_frame.pack(fill="x", pady=5)
-
-        self.toolbar_frame = tk.Frame(self.top_container)
-        self.toolbar_frame.pack(fill="x", pady=(0, 5))
-
-        self.middle_container = tk.Frame(self.root)
-        self.middle_container.pack(fill="x", padx=10, pady=5)
-
-        self.hover_frame = tk.LabelFrame(self.middle_container, text="Hover-Werte")
-        self.hover_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
-
-        self.filter_frame = tk.LabelFrame(self.middle_container, text="Filter")
-        self.filter_frame.pack(side="left", fill="y", padx=(5, 0))
+        self.options_frame.pack(fill="x", pady=(0, 5))
 
         self.bottom_container = tk.Frame(self.root)
         self.bottom_container.pack(fill="x", side="bottom", padx=10, pady=(0, 5))
 
-        self.plot_frame = tk.Frame(self.root, bd=1, relief="sunken")
-        self.plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.center_container = tk.Frame(self.root)
+        self.center_container.pack(fill="both", expand=True, padx=10, pady=5, side="top")
 
-    def _create_toolbar(self):
+        self.plot_frame = tk.Frame(self.center_container, bd=1, relief="sunken")
+        self.plot_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        self.side_panel = tk.Frame(self.center_container)
+        self.side_panel.pack(side="left", fill="y")
+
+        self.hover_frame = tk.LabelFrame(self.side_panel, text="Hover-Werte")
+        self.hover_frame.pack(fill="both", padx=(5, 0), pady=(0, 5))
+
+    def _create_top_controls(self):
+        tk.Label(self.top_controls_frame, text="Datei:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.file_combo = ttk.Combobox(self.top_controls_frame, width=25, state="readonly")
+        self.file_combo.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(self.top_controls_frame, text="X:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.x_combo = ttk.Combobox(self.top_controls_frame, width=20, state="readonly")
+        self.x_combo.grid(row=0, column=3, padx=5, pady=5)
+
+        tk.Label(self.top_controls_frame, text="Y:").grid(row=0, column=4, padx=5, pady=5, sticky="w")
+        self.y_combo = ttk.Combobox(self.top_controls_frame, width=20, state="readonly")
+        self.y_combo.grid(row=0, column=5, padx=5, pady=5)
+
+        tk.Label(self.top_controls_frame, text="Wert:").grid(row=0, column=6, padx=5, pady=5, sticky="w")
+        self.value_combo = ttk.Combobox(self.top_controls_frame, width=20, state="readonly")
+        self.value_combo.grid(row=0, column=7, padx=5, pady=5)
+
+        tk.Label(self.top_controls_frame, text="Modus:").grid(row=0, column=8, padx=5, pady=5, sticky="w")
+        self.view_mode_var = tk.StringVar(value="2D")
+        self.view_mode_combo = ttk.Combobox(
+            self.top_controls_frame,
+            textvariable=self.view_mode_var,
+            values=["2D", "3D"],
+            width=8,
+            state="readonly"
+        )
+        self.view_mode_combo.grid(row=0, column=9, padx=5, pady=5)
+
         self.toolbar_plot_button = tk.Button(
-            self.toolbar_frame,
+            self.top_controls_frame,
             text="Plotten",
             command=self.plot_selected_data,
             state="disabled"
         )
-        self.toolbar_plot_button.pack(side="left", padx=2)
+        self.toolbar_plot_button.grid(row=0, column=10, padx=(15, 5), pady=5)
 
         self.toolbar_reset_button = tk.Button(
-            self.toolbar_frame,
+            self.top_controls_frame,
             text="Reset View",
             command=self.controller.reset_view,
             state="disabled"
         )
-        self.toolbar_reset_button.pack(side="left", padx=2)
-
-        self.toolbar_clear_filters_button = tk.Button(
-            self.toolbar_frame,
-            text="Filter löschen",
-            command=self.clear_filters,
-            state="disabled"
-        )
-        self.toolbar_clear_filters_button.pack(side="left", padx=2)
-
-        self.toolbar_toggle_button = tk.Button(
-            self.toolbar_frame,
-            text="2D/3D",
-            command=self.toggle_dimension,
-            state="disabled"
-        )
-        self.toolbar_toggle_button.pack(side="left", padx=2)
+        self.toolbar_reset_button.grid(row=0, column=11, padx=5, pady=5)
 
         self.toolbar_export_button = tk.Button(
-            self.toolbar_frame,
+            self.top_controls_frame,
             text="Export PNG",
             command=self.export_current_plot,
             state="disabled"
         )
-        self.toolbar_export_button.pack(side="left", padx=2)
+        self.toolbar_export_button.grid(row=0, column=12, padx=5, pady=5)
+
+        for col in [1, 3, 5, 7]:
+            self.top_controls_frame.grid_columnconfigure(col, weight=1)
+
+    def _create_option_widgets(self):
+        tk.Label(self.options_frame, text="Jeder n-te Punkt:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.step_entry = tk.Entry(self.options_frame, width=8)
+        self.step_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.step_entry.insert(0, "500")
+
+        tk.Label(self.options_frame, text="Punktgröße:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.point_size_entry = tk.Entry(self.options_frame, width=8)
+        self.point_size_entry.grid(row=0, column=3, padx=5, pady=5)
+        self.point_size_entry.insert(0, "5")
 
         self.sampling_var = tk.BooleanVar(value=True)
-        self.toolbar_sampling_cb = tk.Checkbutton(
-            self.toolbar_frame,
+        self.sampling_cb = tk.Checkbutton(
+            self.options_frame,
             text="Sampling",
             variable=self.sampling_var,
             state="disabled"
         )
-        self.toolbar_sampling_cb.pack(side="left", padx=10)
+        self.sampling_cb.grid(row=0, column=4, padx=10, pady=5)
 
-    def _set_plot_controls_state(self, enabled):
-        state = "normal" if enabled else "disabled"
+        self.auto_reload_var = tk.BooleanVar(value=False)
+        self.auto_reload_cb = tk.Checkbutton(
+            self.options_frame,
+            text="Auto-Reload",
+            variable=self.auto_reload_var
+        )
+        self.auto_reload_cb.grid(row=0, column=5, padx=10, pady=5)
 
-        for name in [
-            "toolbar_plot_button",
-            "toolbar_reset_button",
-            "toolbar_clear_filters_button",
-            "toolbar_toggle_button",
-            "toolbar_export_button",
-            "toolbar_sampling_cb",
-        ]:
-            widget = getattr(self, name, None)
-            if widget is not None:
-                widget.config(state=state)
-        
-            # def _set_plot_controls_state(self, enabled):
-            # state = "normal" if enabled else "disabled"
+    def _create_filter_widgets(self):
+        self.filter_frame = tk.LabelFrame(self.bottom_container, text="Filter")
+        self.filter_frame.pack(fill="x", padx=10, pady=5)
 
-            # self.toolbar_plot_button.config(state=state)
-            # self.toolbar_reset_button.config(state=state)
-            # self.toolbar_clear_filters_button.config(state=state)
-            # self.toolbar_toggle_button.config(state=state)
-            # self.toolbar_export_button.config(state=state)
-            # self.toolbar_sampling_cb.config(state=state)
+        top_row = tk.Frame(self.filter_frame)
+        top_row.pack(fill="x", padx=5, pady=5)
 
-    def _create_statusbar(self):
-        statusbar = ttk.Frame(self.bottom_container)
-        statusbar.pack(fill="x", side="bottom", padx=10, pady=3)
+        tk.Button(
+            top_row,
+            text="Filter hinzufügen",
+            command=self.add_filter_row
+        ).pack(side="left")
 
-        self.file_status_label = ttk.Label(statusbar, text="Keine Datei geladen")
-        self.file_status_label.pack(side="left")
+        tk.Button(
+            top_row,
+            text="Filter löschen",
+            command=self.clear_filters
+        ).pack(side="left", padx=5)
 
-        self.view_status_label = ttk.Label(statusbar, text="")
-        self.view_status_label.pack(side="right", padx=(0, 15))
+        self.filters_container = tk.Frame(self.filter_frame)
+        self.filters_container.pack(fill="x", padx=5, pady=5)
 
-        self.plot_time_label = ttk.Label(statusbar, text="")
-        self.plot_time_label.pack(side="right", padx=(0, 15))
-
-    def _create_status_label(self):
-        self.status_label = tk.Label(self.options_frame, text="", fg="red")
-        self.status_label.grid(row=1, column=0, columnspan=10, sticky="w", padx=5)
+        self.add_filter_row()
 
     def _create_scrollable_hover_area(self):
-        self.hover_canvas = tk.Canvas(self.hover_frame, height=100, width=200)
+        self.hover_canvas = tk.Canvas(self.hover_frame, height=80, width=180)
         self.hover_scrollbar = tk.Scrollbar(
             self.hover_frame,
             orient="vertical",
@@ -185,77 +191,277 @@ class AppGUI:
         self.hover_canvas.pack(side="left", fill="both", expand=True)
         self.hover_scrollbar.pack(side="right", fill="y")
 
-    def _create_settings_widgets(self):
-        tk.Label(self.settings_frame, text="Datei:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.file_combo = ttk.Combobox(self.settings_frame, width=25, state="readonly")
-        self.file_combo.grid(row=0, column=1, padx=5, pady=5)
+    def _create_statusbar(self):
+        statusbar = ttk.Frame(self.bottom_container)
+        statusbar.pack(fill="x", side="bottom", padx=10, pady=3)
 
-        tk.Label(self.settings_frame, text="X:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.x_combo = ttk.Combobox(self.settings_frame, width=22, state="readonly")
-        self.x_combo.grid(row=0, column=3, padx=5, pady=5)
+        self.file_status_label = ttk.Label(statusbar, text="Keine Datei geladen")
+        self.file_status_label.pack(side="left")
 
-        tk.Label(self.settings_frame, text="Y:").grid(row=0, column=4, padx=5, pady=5, sticky="w")
-        self.y_combo = ttk.Combobox(self.settings_frame, width=22, state="readonly")
-        self.y_combo.grid(row=0, column=5, padx=5, pady=5)
+        self.view_status_label = ttk.Label(statusbar, text="")
+        self.view_status_label.pack(side="right", padx=(0, 15))
 
-        tk.Label(self.settings_frame, text="Wert:").grid(row=0, column=6, padx=5, pady=5, sticky="w")
-        self.value_combo = ttk.Combobox(self.settings_frame, width=22, state="readonly")
-        self.value_combo.grid(row=0, column=7, padx=5, pady=5)
+        self.plot_time_label = ttk.Label(statusbar, text="")
+        self.plot_time_label.pack(side="right", padx=(0, 15))
 
-        tk.Label(self.settings_frame, text="Modus:").grid(row=0, column=8, padx=5, pady=5, sticky="w")
-        self.view_mode_var = tk.StringVar(value="2D")
-        self.view_mode_combo = ttk.Combobox(
-            self.settings_frame,
-            textvariable=self.view_mode_var,
-            values=["2D", "3D"],
-            width=8,
-            state="readonly"
-        )
-        self.view_mode_combo.grid(row=0, column=9, padx=5, pady=5)
+    def _create_status_label(self):
+        self.status_label = tk.Label(self.options_frame, text="", fg="red")
+        self.status_label.grid(row=1, column=0, columnspan=10, sticky="w", padx=5)
 
-    def _create_option_widgets(self):
-        tk.Label(self.options_frame, text="Jeder n-te Punkt:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.step_entry = tk.Entry(self.options_frame, width=8)
-        self.step_entry.grid(row=0, column=1, padx=5, pady=5)
-        self.step_entry.insert(0, "500")
+    def _bind_events(self):
+        self.file_combo.bind("<<ComboboxSelected>>", self.on_file_selected)
 
-        tk.Label(self.options_frame, text="Punktgröße:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.point_size_entry = tk.Entry(self.options_frame, width=8)
-        self.point_size_entry.grid(row=0, column=3, padx=5, pady=5)
-        self.point_size_entry.insert(0, "5")
+    def _initialize(self):
+        self.known_files = set(self.fill_file_list())
+        self.load_selected_file()
+        self.plot_selected_data()
+        self.check_for_new_files()
 
-        self.auto_reload_var = tk.BooleanVar(value=False)
-        self.auto_reload_cb = tk.Checkbutton(
-            self.options_frame,
-            text="Auto-Reload",
-            variable=self.auto_reload_var
-        )
-        self.auto_reload_cb.grid(row=0, column=4, padx=10, pady=5)
+    # --- helpers ---
 
-    def _create_filter_widgets(self):
-        self.filter_rows = []
+    def _set_plot_controls_state(self, enabled):
+        state = "normal" if enabled else "disabled"
 
-        self.filter_frame = tk.LabelFrame(self.bottom_container, text="Filter")
-        self.filter_frame.pack(fill="x", padx=10, pady=5)
+        for name in [
+            "toolbar_plot_button",
+            "toolbar_reset_button",
+            "toolbar_export_button",
+            "sampling_cb",
+        ]:
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.config(state=state)
 
-        top_row = tk.Frame(self.filter_frame)
-        top_row.pack(fill="x", padx=5, pady=5)
+    def _set_combo_values(self, combo, values, default="Alle"):
+        combo["values"] = values
+        combo.set(default)
 
-        tk.Button(
-            top_row,
-            text="Filter hinzufügen",
-            command=self.add_filter_row
-        ).pack(side="left")
+    def _get_int_entry(self, entry, default):
+        try:
+            return int(entry.get())
+        except ValueError:
+            entry.delete(0, tk.END)
+            entry.insert(0, str(default))
+            return default
 
-        tk.Button(
-            top_row,
-            text="Filter löschen",
-            command=self.clear_filters
-        ).pack(side="left", padx=5)
+    def _get_float_entry(self, entry, default):
+        try:
+            return float(entry.get())
+        except ValueError:
+            entry.delete(0, tk.END)
+            entry.insert(0, str(default))
+            return default
 
-        self.filters_container = tk.Frame(self.filter_frame)
-        self.filters_container.pack(fill="x", padx=5, pady=5)
-        self.add_filter_row()
+    def _set_preferred_or_fallback(self, combo, columns, preferred_name, fallback_index):
+        if preferred_name in columns:
+            combo.set(preferred_name)
+        elif len(columns) > fallback_index:
+            combo.set(columns[fallback_index])
+
+    def _get_plot_config(self):
+        step = self._get_int_entry(self.step_entry, 200)
+
+        if self.controller.df is not None:
+            total_rows = len(self.controller.df)
+
+            if total_rows > 200000:
+                step = max(step, 10)
+            if total_rows > 500000:
+                step = max(step, 20)
+            if total_rows > 1000000:
+                step = max(step, 50)
+
+        return {
+            "x_col": self.x_combo.get(),
+            "y_col": self.y_combo.get(),
+            "val_col": self.value_combo.get(),
+            "step": step,
+            "point_size": self._get_float_entry(self.point_size_entry, 5),
+            "hover_cols": self.get_selected_hover_columns(),
+            "filters": self.get_active_filters(),
+            "mode": self.view_mode_var.get(),
+        }
+
+    def _get_plot_limits(self):
+        xlim = None
+        ylim = None
+        preserve_limits = False
+
+        if getattr(self.controller, "current_ax", None) is not None:
+            xlim = self.controller.current_ax.get_xlim()
+            ylim = self.controller.current_ax.get_ylim()
+            preserve_limits = True
+        elif getattr(self.controller, "current_view_limits", None) is not None:
+            xlim, ylim = self.controller.current_view_limits
+            preserve_limits = True
+
+        return xlim, ylim, preserve_limits
+
+    def _plot_by_mode(self, config, xlim, ylim, preserve_limits):
+        if config["mode"] == "2D":
+            return self.controller.plot_current_data(
+                self.plot_frame,
+                config["x_col"],
+                config["y_col"],
+                config["val_col"],
+                config["step"],
+                config["hover_cols"],
+                config["point_size"],
+                config["filters"],
+                xlim=xlim,
+                ylim=ylim,
+                preserve_limits=preserve_limits
+            )
+
+        self._plot_3d(config)
+        return None
+
+    def _update_plot_status(self, num_points, duration):
+        self.plot_time_label.config(text=f"Plotzeit: {duration:.2f}s")
+
+        if num_points is not None:
+            if getattr(self.controller, "current_view_limits", None) is not None:
+                xlim, ylim = self.controller.current_view_limits
+                self.view_status_label.config(
+                    text=f"Punkte: {num_points}    X: [{xlim[0]:.2f}, {xlim[1]:.2f}]  Y: [{ylim[0]:.2f}, {ylim[1]:.2f}]"
+                )
+            else:
+                self.view_status_label.config(text=f"Punkte: {num_points}")
+        else:
+            self.view_status_label.config(text="")
+
+    def _handle_new_file_2d(self, newest_file, current_files):
+        try:
+            self.file_combo.set(newest_file)
+            self.load_selected_file()
+            self.plot_selected_data()
+            self.known_files = current_files
+            print(f"Neue Datei automatisch geladen (2D): {newest_file}")
+            self.status_label.config(text="")
+        except PermissionError:
+            print(f"Datei noch gesperrt: {newest_file}")
+
+    def _handle_new_file_3d(self, newest_file, current_files):
+        try:
+            self.controller.load_all_files()
+            self.plot_selected_data()
+            self.known_files = current_files
+            print(f"Neue Datei in 3D geladen: {newest_file}")
+            self.status_label.config(text="")
+        except PermissionError:
+            print(f"Datei noch gesperrt: {newest_file}")
+
+    def _process_new_file(self, newest_file, current_files):
+        if not self.file_is_ready(newest_file):
+            print(f"Datei noch nicht fertig: {newest_file}")
+            return
+
+        if self.view_mode_var.get() == "2D":
+            self._handle_new_file_2d(newest_file, current_files)
+        else:
+            self._handle_new_file_3d(newest_file, current_files)
+
+    # --- file handling ---
+
+    def fill_file_list(self):
+        files = sorted(self.controller.get_file_list())
+        self.file_combo["values"] = files
+
+        if files and not self.file_combo.get():
+            self.file_combo.set(files[0])
+
+        return files
+
+    def file_is_ready(self, filename):
+        path = os.path.join(self.data_folder, filename)
+        try:
+            size1 = os.path.getsize(path)
+            with open(path, "rb") as f:
+                f.read(1)
+            size2 = os.path.getsize(path)
+            return size1 == size2
+        except (PermissionError, OSError, FileNotFoundError):
+            return False
+
+    def load_selected_file(self):
+        filename = self.file_combo.get()
+        if not filename:
+            return
+
+        self.controller.load_file(filename)
+        columns = self.controller.get_columns()
+
+        self.set_default_plot_columns(columns)
+        self.create_hover_checkboxes(columns)
+        self._set_plot_controls_state(True)
+
+        self.file_status_label.config(text=f"Datei: {filename}")
+
+    def on_file_selected(self, _event=None):
+        self.load_selected_file()
+        self.plot_selected_data()
+
+    def check_for_new_files(self):
+        if self.auto_reload_var.get():
+            files = self.fill_file_list()
+            current_files = set(files)
+            new_files = current_files - self.known_files
+
+            if new_files:
+                newest_file = sorted(new_files)[-1]
+                self._process_new_file(newest_file, current_files)
+            else:
+                self.known_files = current_files
+
+        self.root.after(2000, self.check_for_new_files)
+
+    # --- plot settings ---
+
+    def set_default_plot_columns(self, columns):
+        self.x_combo["values"] = columns
+        self.y_combo["values"] = columns
+        self.value_combo["values"] = columns
+
+        self.update_filter_column_options()
+
+        self._set_preferred_or_fallback(self.x_combo, columns, "Field Commanded X [mm]", 0)
+        self._set_preferred_or_fallback(self.y_combo, columns, "Field Commanded Y [mm]", 1)
+        self._set_preferred_or_fallback(self.value_combo, columns, "ADC B:0", 2)
+
+    # --- hover ---
+
+    def clear_hover_checkboxes(self):
+        for widget in self.hover_inner_frame.winfo_children():
+            widget.destroy()
+        self.hover_vars.clear()
+
+    def create_hover_checkboxes(self, columns):
+        self.clear_hover_checkboxes()
+
+        for col in columns:
+            var = tk.BooleanVar()
+            cb = tk.Checkbutton(
+                self.hover_inner_frame,
+                text=col,
+                variable=var,
+                command=self.plot_selected_data
+            )
+            cb.pack(anchor="w")
+            self.hover_vars[col] = var
+
+    def get_selected_hover_columns(self):
+        return [col for col, var in self.hover_vars.items() if var.get()]
+
+    def _bind_mousewheel(self, _event):
+        self.hover_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, _event):
+        self.hover_canvas.unbind_all("<MouseWheel>")
+
+    def _on_mousewheel(self, event):
+        self.hover_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    # --- filters ---
 
     def add_filter_row(self):
         row_frame = tk.Frame(self.filters_container)
@@ -313,6 +519,12 @@ class AppGUI:
                 self.filter_rows.remove(row)
                 break
 
+    def clear_filters(self):
+        for row in self.filter_rows[:]:
+            row["frame"].destroy()
+        self.filter_rows.clear()
+        self.add_filter_row()
+
     def get_active_filters(self):
         filters = []
 
@@ -336,183 +548,7 @@ class AppGUI:
         for row in self.filter_rows:
             row["column_box"]["values"] = columns
 
-    def _bind_mousewheel(self, _event):
-        self.hover_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, _event):
-        self.hover_canvas.unbind_all("<MouseWheel>")
-
-    def _on_mousewheel(self, event):
-        self.hover_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-    def _bind_events(self):
-        #self.tag_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
-        #self.outline_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
-        #self.part_combo.bind("<<ComboboxSelected>>", lambda e: self.plot_selected_data())
-        self.file_combo.bind("<<ComboboxSelected>>", self.on_file_selected)
-
-    def _initialize(self):
-        #self._set_combo_values(self.tag_combo, ["Alle"], "Alle")
-        #self._set_combo_values(self.outline_combo, ["Alle"], "Alle")
-        #self._set_combo_values(self.part_combo, ["Alle"], "Alle")
-
-        self.known_files = set(self.fill_file_list())
-
-        # self._build_layout()
-        # self._create_widgets()
-        # self._create_toolbar()
-        # self._bind_events()
-        
-        self.load_selected_file()
-        self.plot_selected_data()
-        self.check_for_new_files()
-
-    def _set_combo_values(self, combo, values, default="Alle"):
-        combo["values"] = values
-        combo.set(default)
-
-    def _get_int_entry(self, entry, default):
-        try:
-            return int(entry.get())
-        except ValueError:
-            entry.delete(0, tk.END)
-            entry.insert(0, str(default))
-            return default
-
-    def _get_float_entry(self, entry, default):
-        try:
-            return float(entry.get())
-        except ValueError:
-            entry.delete(0, tk.END)
-            entry.insert(0, str(default))
-            return default
-
-    def _set_preferred_or_fallback(self, combo, columns, preferred_name, fallback_index):
-        if preferred_name in columns:
-            combo.set(preferred_name)
-        elif len(columns) > fallback_index:
-            combo.set(columns[fallback_index])
-
-    def _get_plot_config(self):
-        step = self._get_int_entry(self.step_entry, 200)
-
-        if self.controller.df is not None:
-            total_rows = len(self.controller.df)
-
-            if total_rows > 200000:
-                step = max(step, 10)
-            if total_rows > 500000:
-                step = max(step, 20)
-            if total_rows > 1000000:
-                step = max(step, 50)
-
-        return {
-            "x_col": self.x_combo.get(),
-            "y_col": self.y_combo.get(),
-            "val_col": self.value_combo.get(),
-            "step": step,
-            "point_size": self._get_float_entry(self.point_size_entry, 5),
-            "hover_cols": self.get_selected_hover_columns(),
-            "filters": self.get_active_filters(),
-            "mode": self.view_mode_var.get(),
-        }
-
-    def fill_file_list(self):
-        files = sorted(self.controller.get_file_list())
-        self.file_combo["values"] = files
-
-        if files and not self.file_combo.get():
-            self.file_combo.set(files[0])
-
-        return files
-
-    def set_filter_values(self, combo, column_name):
-        if self.controller.df is not None and column_name in self.controller.df.columns:
-            vals = sorted(self.controller.df[column_name].dropna().astype(str).unique().tolist())
-            self._set_combo_values(combo, ["Alle"] + vals, "Alle")
-        else:
-            self._set_combo_values(combo, ["Alle"], "Alle")
-
-    def file_is_ready(self, filename):
-        path = os.path.join(self.data_folder, filename)
-        try:
-            size1 = os.path.getsize(path)
-            with open(path, "rb") as f:
-                f.read(1)
-            size2 = os.path.getsize(path)
-            return size1 == size2
-        except (PermissionError, OSError, FileNotFoundError):
-            return False
-
-    def clear_hover_checkboxes(self):
-        for widget in self.hover_inner_frame.winfo_children():
-            widget.destroy()
-        self.hover_vars.clear()
-
-    def create_hover_checkboxes(self, columns):
-        self.clear_hover_checkboxes()
-
-        for col in columns:
-            var = tk.BooleanVar()
-            cb = tk.Checkbutton(
-                self.hover_inner_frame,
-                text=col,
-                variable=var,
-                command=self.plot_selected_data
-            )
-            cb.pack(anchor="w")
-            self.hover_vars[col] = var
-
-    def set_default_plot_columns(self, columns):
-        self.x_combo["values"] = columns
-        self.y_combo["values"] = columns
-        self.value_combo["values"] = columns
-
-        self.update_filter_column_options()
-
-        self._set_preferred_or_fallback(
-            self.x_combo, columns, "Field Commanded X [mm]", 0
-        )
-        self._set_preferred_or_fallback(
-            self.y_combo, columns, "Field Commanded Y [mm]", 1
-        )
-        self._set_preferred_or_fallback(
-            self.value_combo, columns, "ADC B:0", 2
-        )
-
-    def load_selected_file(self):
-        filename = self.file_combo.get()
-        if not filename:
-            return
-
-        self.controller.load_file(filename)
-        columns = self.controller.get_columns()
-
-        self.set_default_plot_columns(columns)
-        self.create_hover_checkboxes(columns)
-
-        #self.set_filter_values(self.tag_combo, "tag")
-        #self.set_filter_values(self.outline_combo, "outline")
-        #self.set_filter_values(self.part_combo, "bauteil")
-        self._set_plot_controls_state(True)
-
-        self.file_status_label.config(text=f"Datei: {filename}")
-
-        if hasattr(self, "file_status_label"):
-            self.file_status_label.config(text=f"Datei: {filename}")
-
-    def get_selected_hover_columns(self):
-        return [col for col, var in self.hover_vars.items() if var.get()]
-
-    #--- filter reset ---
-
-    def clear_filters(self):
-        for row in self.filter_rows[:]:
-            row["frame"].destroy()
-        self.filter_rows.clear()
-        self.add_filter_row()
-
-    #--- plot selected data ---
+    # --- plotting ---
 
     def plot_selected_data(self):
         self.status_label.config(text="Lade Plot...")
@@ -525,7 +561,7 @@ class AppGUI:
 
         config = self._get_plot_config()
 
-        if hasattr(self, "sampling_var") and not self.sampling_var.get():
+        if not self.sampling_var.get():
             config["step"] = 1
 
         if not config["x_col"] or not config["y_col"] or not config["val_col"]:
@@ -533,87 +569,13 @@ class AppGUI:
             self.status_label.config(text="")
             return
 
-        # aktuellen Ausschnitt merken
-        xlim = None
-        ylim = None
-        preserve_limits = False
+        xlim, ylim, preserve_limits = self._get_plot_limits()
+        num_points = self._plot_by_mode(config, xlim, ylim, preserve_limits)
 
-        if getattr(self.controller, "current_ax", None) is not None:
-            xlim = self.controller.current_ax.get_xlim()
-            ylim = self.controller.current_ax.get_ylim()
-            preserve_limits = True
-        elif getattr(self.controller, "current_view_limits", None) is not None:
-            xlim, ylim = self.controller.current_view_limits
-            preserve_limits = True
-
-        num_points = None
-
-        if config["mode"] == "2D":
-            num_points = self.controller.plot_current_data(
-                self.plot_frame,
-                config["x_col"],
-                config["y_col"],
-                config["val_col"],
-                config["step"],
-                config["hover_cols"],
-                config["point_size"],
-                config["filters"],
-                xlim=xlim,
-                ylim=ylim,
-                preserve_limits=preserve_limits
-            )
-        else:
-            self._plot_3d(config)
-
-        end_time = time.perf_counter()
-        duration = end_time - start_time
-
-        if hasattr(self, "plot_time_label"):
-            self.plot_time_label.config(text=f"Plotzeit: {duration:.2f}s")
-
-        if num_points is not None and hasattr(self, "view_status_label"):
-            if getattr(self.controller, "current_view_limits", None) is not None:
-                xlim, ylim = self.controller.current_view_limits
-                self.view_status_label.config(
-                    text=f"Punkte: {num_points}    X: [{xlim[0]:.2f}, {xlim[1]:.2f}]  Y: [{ylim[0]:.2f}, {ylim[1]:.2f}]"
-                )
-            else:
-                self.view_status_label.config(text=f"Punkte: {num_points}")
+        duration = time.perf_counter() - start_time
+        self._update_plot_status(num_points, duration)
 
         self.status_label.config(text="")
-
-    def _plot_2d(self, config):
-        df = self.controller.df
-        num_points = 0
-
-        if df is not None:
-            filtered_df = self.controller._apply_filters(df, config["filters"])
-
-            if filtered_df is not None and not filtered_df.empty:
-                step = max(1, int(config["step"]))
-                num_points = len(filtered_df.iloc[::step])
-
-        self.controller.plot_current_data(
-            self.plot_frame,
-            config["x_col"],
-            config["y_col"],
-            config["val_col"],
-            config["step"],
-            config["hover_cols"],
-            config["point_size"],
-            config["filters"]
-        )
-
-        if hasattr(self, "plot_time_label"):
-            self.plot_time_label.config(text=f"Punkte: {num_points}")
-
-        if hasattr(self.controller, "current_view_limits") and self.controller.current_view_limits is not None:
-            xlim, ylim = self.controller.current_view_limits
-            self.view_status_label.config(
-                text=f"X: [{xlim[0]:.2f}, {xlim[1]:.2f}]  Y: [{ylim[0]:.2f}, {ylim[1]:.2f}]"
-            )
-
-        return num_points
 
     def _plot_3d(self, config):
         self.controller.load_all_files()
@@ -625,103 +587,6 @@ class AppGUI:
             config["step"],
             config["point_size"]
         )
-
-    #--- toggle dimension ---
-
-    def toggle_dimension(self):
-        current = self.view_mode_var.get()
-
-        if current == "2D":
-            self.view_mode_var.set("3D")
-        else:
-            self.view_mode_var.set("2D")
-
-        self.plot_selected_data()
-
-    #--- reset view ---
-
-    def reset_view(self):
-        self.current_view_limits = None
-
-        if hasattr(self, "current_plot_config") and self.current_plot_config:
-            cfg = self.current_plot_config
-
-            self.plot_current_data(
-                cfg["plot_frame"],
-                cfg["x_col"],
-                cfg["y_col"],
-                cfg["val_col"],
-                cfg["step"],
-                cfg["hover_cols"],
-                cfg["point_size"],
-                cfg["filters"],
-                xlim=None,
-                ylim=None,
-                preserve_limits=False
-            )
-
-    def _handle_new_file_in_2d(self, newest_file, current_files):
-        self.known_files = current_files
-        print(f"Neue Datei erkannt (2D, nicht automatisch geladen): {newest_file}")
-        self.status_label.config(text=f"Neue Datei verfügbar: {newest_file}")
-
-    def _handle_new_file_in_3d(self, newest_file, current_files):
-        try:
-            self.controller.load_all_files()
-            self.plot_selected_data()
-            self.known_files = current_files
-            print(f"Neue Datei in 3D geladen: {newest_file}")
-            self.status_label.config(text="")
-        except PermissionError:
-            print(f"Datei noch gesperrt: {newest_file}")
-
-    def check_for_new_files(self):
-        if self.auto_reload_var.get():
-            files = self.fill_file_list()
-            current_files = set(files)
-
-            new_files = current_files - self.known_files
-
-            if new_files:
-                newest_file = sorted(new_files)[-1]
-
-                if self.file_is_ready(newest_file):
-                    mode = self.view_mode_var.get()
-
-                    if mode == "2D":
-                        try:
-                            self.file_combo.set(newest_file)
-                            self.load_selected_file()
-                            self.plot_selected_data()
-
-                            self.known_files = current_files
-                            print(f"Neue Datei automatisch geladen (2D): {newest_file}")
-                            self.status_label.config(text="")
-                        except PermissionError:
-                            print(f"Datei noch gesperrt: {newest_file}")
-
-                    else:
-                        try:
-                            self.controller.load_all_files()
-                            self.plot_selected_data()
-
-                            self.known_files = current_files
-                            print(f"Neue Datei in 3D geladen: {newest_file}")
-                            self.status_label.config(text="")
-                        except PermissionError:
-                            print(f"Datei noch gesperrt: {newest_file}")
-                else:
-                    print(f"Datei noch nicht fertig: {newest_file}")
-            else:
-                self.known_files = current_files
-
-        self.root.after(2000, self.check_for_new_files)
-
-    def on_file_selected(self, _event=None):
-        self.load_selected_file()
-        self.plot_selected_data()
-
-    #--- export current plot ---
 
     def export_current_plot(self):
         if not hasattr(self.controller, "current_figure") or self.controller.current_figure is None:
@@ -736,6 +601,8 @@ class AppGUI:
             return
 
         self.controller.current_figure.savefig(file_path, dpi=300, bbox_inches="tight")
+
+    # --- closing ---
 
     def on_close(self):
         try:

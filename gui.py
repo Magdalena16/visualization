@@ -117,10 +117,10 @@ class AppGUI:
             self.top_controls_frame.grid_columnconfigure(col, weight=1)
 
     def _create_option_widgets(self):
-        tk.Label(self.options_frame, text="Jeder n-te Punkt:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(self.options_frame, text="Max. sichtbare Punkte").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.step_entry = tk.Entry(self.options_frame, width=8)
         self.step_entry.grid(row=0, column=1, padx=5, pady=5)
-        self.step_entry.insert(0, "500")
+        self.step_entry.insert(0, "3000")
 
         tk.Label(self.options_frame, text="Punktgröße:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.point_size_entry = tk.Entry(self.options_frame, width=8)

@@ -1,5 +1,6 @@
 ﻿import os
 import time
+import math
 
 import pandas as pd
 
@@ -195,25 +196,35 @@ class AppController:
 
         return df
 
-    def _apply_sampling(self, df, x_col, y_col, xlim, ylim, step):
+    def _apply_sampling(self, df, max_points):
         if df is None or df.empty:
             return None
 
-        if xlim is not None and ylim is not None:
-            visible_df = df[
-                (df[x_col] >= xlim[0]) & (df[x_col] <= xlim[1]) &
-                (df[y_col] >= ylim[0]) & (df[y_col] <= ylim[1])
-            ]
+        max_points = max(1, int(max_points)) if max_points else 1
 
-            if visible_df.empty:
-                return None
+        if len(df) <= max_points:
+            return df
 
-            target_points = 5000
-            dynamic_step = max(1, len(visible_df) // target_points)
-            return visible_df.iloc[::dynamic_step]
+        soft_factor = 1.5
+        target_points = int(max_points * soft_factor)
 
-        step = max(1, int(step)) if step else 1
+        if len(df) <= target_points:
+            return df
+
+        step = max(1, math.ceil(len(df) / target_points))
         return df.iloc[::step]
+
+    def _restrict_to_visible_area(self, df, x_col, y_col, xlim, ylim):
+        if df is None or df.empty:
+            return df
+
+        if xlim is None or ylim is None:
+            return df
+
+        return df[
+            (df[x_col] >= xlim[0]) & (df[x_col] <= xlim[1]) &
+            (df[y_col] >= ylim[0]) & (df[y_col] <= ylim[1])
+        ]
 
     def _get_color_limits(self, val_col):
         if self.color_limits is None:
@@ -286,7 +297,11 @@ class AppController:
         t1 = time.time()
         print(f"[Timing] Prepare DF: {t1 - t0:.3f}s")
 
-        df = self._apply_sampling(df, x_col, y_col, xlim, ylim, step)
+        df = self._restrict_to_visible_area(df, x_col, y_col, xlim, ylim)
+        if df is None or df.empty:
+            return
+
+        df = self._apply_sampling(df, step)
         if df is None or df.empty:
             return
 
@@ -383,19 +398,13 @@ class AppController:
         if df is None or df.empty:
             return
 
-        df = df[
-            (df[cfg["x_col"]] >= xlim[0]) & (df[cfg["x_col"]] <= xlim[1]) &
-            (df[cfg["y_col"]] >= ylim[0]) & (df[cfg["y_col"]] <= ylim[1])
-        ]
-        if df.empty:
+        df = self._restrict_to_visible_area(df, cfg["x_col"], cfg["y_col"], xlim, ylim)
+        if df is None or df.empty:
             return
 
-        visible_points = len(df)
-        max_visible_points = 10000
-
-        if visible_points > max_visible_points:
-            step = max(1, int(visible_points / max_visible_points))
-            df = df.iloc[::step]
+        df = self._apply_sampling(df, cfg["step"])
+        if df is None or df.empty:
+            return
 
         x = df[cfg["x_col"]]
         y = df[cfg["y_col"]]
